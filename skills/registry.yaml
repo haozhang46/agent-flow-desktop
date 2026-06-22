@@ -1,0 +1,141 @@
+skills:
+  - name: using-superpowers
+    description: Use when starting any conversation - establishes how to find and use skills
+    skill_type: instruction
+    spawn_subagent: false
+    path: using-superpowers/SKILL.md
+    visibility: public
+    triggers:
+      - superpowers
+      - skills
+  - name: brainstorming
+    description: Use before any creative work - explores user intent, requirements and design before implementation
+    skill_type: instruction
+    spawn_subagent: false
+    path: brainstorming/SKILL.md
+    visibility: public
+    triggers:
+      - brainstorm
+      - design
+      - creative
+  - name: writing-plans
+    description: Use when you have a spec or requirements for a multi-step task, before touching code
+    skill_type: instruction
+    spawn_subagent: false
+    path: writing-plans/SKILL.md
+    visibility: public
+    triggers:
+      - write plan
+      - writing-plans
+      - implementation plan
+  - name: executing-plans
+    description: Use when you have a written implementation plan to execute in a separate session with review checkpoints
+    skill_type: workflow
+    spawn_subagent: false
+    path: executing-plans/SKILL.md
+    visibility: public
+    triggers:
+      - execute plan
+      - executing-plans
+  - name: subagent-driven-development
+    description: Use when executing implementation plans with independent tasks in the current session
+    skill_type: workflow
+    spawn_subagent: true
+    path: subagent-driven-development/SKILL.md
+    visibility: public
+    triggers:
+      - subagent
+      - subagent workflow
+  - name: dispatching-parallel-agents
+    description: Use when facing 2+ independent tasks that can be worked on without shared state or sequential dependencies
+    skill_type: workflow
+    spawn_subagent: true
+    path: dispatching-parallel-agents/SKILL.md
+    visibility: public
+    triggers:
+      - parallel agents
+      - dispatch
+  - name: test-driven-development
+    description: Use when implementing any feature or bugfix, before writing implementation code
+    skill_type: instruction
+    spawn_subagent: false
+    path: test-driven-development/SKILL.md
+    visibility: public
+    triggers:
+      - tdd
+      - test-driven
+  - name: systematic-debugging
+    description: Use when encountering any bug, test failure, or unexpected behavior, before proposing fixes
+    skill_type: instruction
+    spawn_subagent: false
+    path: systematic-debugging/SKILL.md
+    visibility: public
+    triggers:
+      - debug
+      - bug
+      - test failure
+  - name: verification-before-completion
+    description: Use before claiming work is complete - requires running verification commands and confirming output
+    skill_type: instruction
+    spawn_subagent: false
+    path: verification-before-completion/SKILL.md
+    visibility: public
+    triggers:
+      - verify
+      - verification
+  - name: using-git-worktrees
+    description: Use when starting feature work that needs isolation from current workspace or before executing implementation plans
+    skill_type: instruction
+    spawn_subagent: false
+    path: using-git-worktrees/SKILL.md
+    visibility: public
+    triggers:
+      - worktree
+      - git worktree
+  - name: requesting-code-review
+    description: Use when completing tasks, implementing major features, or before merging to verify work meets requirements
+    skill_type: instruction
+    spawn_subagent: false
+    path: requesting-code-review/SKILL.md
+    visibility: public
+    triggers:
+      - code review
+      - review request
+  - name: receiving-code-review
+    description: Use when receiving code review feedback, before implementing suggestions
+    skill_type: instruction
+    spawn_subagent: false
+    path: receiving-code-review/SKILL.md
+    visibility: public
+    triggers:
+      - review feedback
+      - code review feedback
+  - name: finishing-a-development-branch
+    description: Use when implementation is complete and you need to decide how to integrate the work
+    skill_type: instruction
+    spawn_subagent: false
+    path: finishing-a-development-branch/SKILL.md
+    visibility: public
+    triggers:
+      - finish branch
+      - merge
+      - pull request
+  - name: writing-skills
+    description: Use when creating new skills, editing existing skills, or verifying skills work before deployment
+    skill_type: instruction
+    spawn_subagent: false
+    path: writing-skills/SKILL.md
+    visibility: public
+    triggers:
+      - writing skills
+      - create skill
+  - name: personal-finance
+    description: Finance Q&A and ledger actions via personalFinancial internal APIs
+    skill_type: instruction
+    spawn_subagent: false
+    path: personal-finance/SKILL.md
+    visibility: public
+    triggers:
+      - finance
+      - ledger
+      - budget
