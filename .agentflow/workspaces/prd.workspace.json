@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "stepId": "prd",
+  "layout": "stack",
+  "components": [
+    {
+      "id": "doc",
+      "type": "markdown-doc",
+      "props": {
+        "docsDir": "docs"
+      }
+    }
+  ]
+}

@@ -1,0 +1,14 @@
+# Local connection overrides for declared resources in resources.yaml.
+# Copy and adjust for your environment; local values win over Resource Server config.
+instances:
+  app-db:
+    host: localhost
+    port: 3306
+    database: myapp
+    user: root
+    password: changeme
+    dsn: mysql://root:changeme@localhost:3306/myapp
+  cache:
+    host: localhost
+    port: 6379
+    dsn: redis://localhost:6379/0

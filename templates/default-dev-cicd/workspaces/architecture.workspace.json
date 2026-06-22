@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "stepId": "architecture",
+  "layout": "stack",
+  "components": [
+    {
+      "id": "arch",
+      "type": "architecture-docs",
+      "props": {
+        "files": [
+          { "path": "docs/architecture.md", "label": "Architecture" },
+          { "path": "AGENTS.md", "label": "AGENTS.md" }
+        ]
+      }
+    }
+  ]
+}

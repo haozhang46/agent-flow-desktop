@@ -1,0 +1,65 @@
+{
+  "version": 1,
+  "stepId": "be-dev",
+  "layout": "tabs",
+  "components": [
+    {
+      "id": "arch",
+      "type": "be-architecture-plan",
+      "label": "分层架构",
+      "props": {
+        "output": "docs/be-architecture.md",
+        "layers": ["api/routes", "agent/graph", "flows", "rag", "auth", "skills"]
+      }
+    },
+    {
+      "id": "dataflow",
+      "type": "markdown-doc",
+      "label": "数据流",
+      "props": {
+        "mode": "file-list",
+        "files": [{ "path": "docs/be-dataflow.md", "label": "Data Flow" }],
+        "editable": true
+      }
+    },
+    {
+      "id": "schema",
+      "type": "schema-migrations",
+      "label": "表设计",
+      "props": {
+        "migrationsDir": "backend/migrations",
+        "output": "docs/be-schema.md"
+      }
+    },
+    {
+      "id": "topology",
+      "type": "topology-panel",
+      "label": "拓扑 & 中间件",
+      "props": {
+        "mode": "edit",
+        "resourcesFile": ".agentflow/resources.yaml"
+      }
+    },
+    {
+      "id": "rules",
+      "type": "agent-rules-editor",
+      "label": "Backend 规则",
+      "props": {
+        "files": [
+          { "path": "AGENTS.md", "label": "AGENTS.md" },
+          { "path": "backend/README.md", "label": "Backend README" }
+        ],
+        "editable": true
+      }
+    },
+    {
+      "id": "code",
+      "type": "code-explorer",
+      "label": "代码",
+      "props": {
+        "root": "backend",
+        "writable": true
+      }
+    }
+  ]
+}

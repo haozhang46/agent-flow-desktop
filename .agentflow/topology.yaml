@@ -1,0 +1,33 @@
+version: 1
+project: agentFlowContainer
+nodes:
+  - id: api
+    kind: service
+    runtime: python
+    source: backend
+    dockerfile: Dockerfile
+    ports:
+      - { container: 8000, host: 8000 }
+  - id: db
+    kind: database
+    engine: postgres
+    ports:
+      - { container: 5432 }
+  - id: cache
+    kind: cache
+    engine: redis
+    ports:
+      - { container: 6379 }
+edges:
+  - from: api
+    to: db
+    env:
+      DATABASE_URL: postgresql://user:pass@db:5432/agentflow
+  - from: api
+    to: cache
+    env:
+      REDIS_URL: redis://cache:6379
+targets:
+  - id: dev
+    type: docker-compose
+    env: dev

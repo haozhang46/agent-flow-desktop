@@ -1,0 +1,28 @@
+{
+  "workflowId": "default-dev-cicd",
+  "intent": "FEATURE",
+  "risk": "HIGH",
+  "currentStepId": "architecture",
+  "activeStepIds": [
+    "prd",
+    "architecture",
+    "fe-dev",
+    "be-dev",
+    "test",
+    "review",
+    "test-2",
+    "cicd"
+  ],
+  "stepStatuses": {
+    "prd": "skipped",
+    "architecture": "pending",
+    "fe-dev": "pending",
+    "be-dev": "pending",
+    "test": "pending",
+    "review": "pending",
+    "test-2": "pending",
+    "cicd": "pending"
+  },
+  "lastGateResults": {},
+  "threadId": "8d6af31e-0bce-4588-b167-08e59a735bcf"
+}

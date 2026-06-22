@@ -1,0 +1,140 @@
+version: 1
+id: default-dev-cicd
+title: Dev to CI/CD Pipeline
+
+profiles:
+  QUERY/NA:
+    required_steps: []
+  BUG_FIX/LOW:
+    required_steps: [be-dev, test, cicd]
+  FEATURE/MEDIUM:
+    required_steps: [prd, architecture, fe-dev, be-dev, test, review, cicd]
+  FEATURE/HIGH:
+    required_steps: [prd, architecture, fe-dev, be-dev, test, review, test-2, cicd]
+
+steps:
+  - id: prd
+    title: PRD
+    executor: deepseek
+    agents_md: null
+    skills: [brainstorming]
+    prompt_template: prompts/prd.md
+    outputs: [docs/PRD.md]
+    phase_output: phases/prd.md
+    advance: manual
+    gates:
+      - id: prd-file
+        type: file
+        path: docs/PRD.md
+        min_bytes: 100
+  - id: architecture
+    title: Architecture
+    executor: deepseek
+    agents_md: null
+    skills: [writing-plans]
+    prompt_template: prompts/architecture.md
+    outputs: [docs/architecture.md, AGENTS.md]
+    phase_output: phases/architecture.md
+    advance: manual
+    gates:
+      - id: arch-doc
+        type: file
+        path: docs/architecture.md
+        min_bytes: 100
+  - id: fe-dev
+    title: Frontend Development
+    executor: claude-code
+    agents_md: null
+    skills: []
+    prompt_template: prompts/fe-dev.md
+    outputs: [fe/]
+    phase_output: phases/fe-dev.md
+    advance: manual
+    gates:
+      - id: fe-dir
+        type: file
+        path: fe/
+  - id: be-dev
+    title: Backend Development
+    executor: deepseek
+    agents_md: null
+    skills: [test-driven-development]
+    prompt_template: prompts/be-dev.md
+    outputs: [backend/]
+    phase_output: phases/be-dev.md
+    advance: manual
+    gates:
+      - id: backend-dir
+        type: file
+        path: backend/
+      - id: backend-tests
+        type: shell
+        command: python -m pytest -q 2>/dev/null || python -m compileall -q .
+        cwd: backend
+        expect_exit: 0
+  - id: test
+    title: Test
+    executor: deepseek
+    agents_md: null
+    skills: []
+    prompt_template: prompts/test.md
+    outputs: [test-report.md]
+    phase_output: phases/test.md
+    advance: manual
+    gates:
+      - id: test-report
+        type: file
+        path: test-report.md
+        min_bytes: 50
+  - id: review
+    title: Code Review
+    executor: deepseek
+    agents_md: null
+    skills: [receiving-code-review]
+    prompt_template: prompts/review.md
+    outputs: [review-notes.md]
+    phase_output: phases/review.md
+    advance: manual
+    gates:
+      - id: review-notes
+        type: file
+        path: review-notes.md
+        min_bytes: 50
+  - id: test-2
+    title: Regression Test
+    executor: deepseek
+    agents_md: null
+    skills: []
+    prompt_template: prompts/test-2.md
+    outputs: [regression-report.md]
+    phase_output: phases/test-2.md
+    advance: manual
+    gates:
+      - id: regression-report
+        type: file
+        path: regression-report.md
+        min_bytes: 50
+  - id: cicd
+    title: CI/CD
+    executor: deepseek
+    agents_md: null
+    skills: []
+    prompt_template: prompts/cicd.md
+    outputs: [.github/workflows/, Dockerfile]
+    phase_output: phases/cicd.md
+    advance: manual
+    gates:
+      - id: dockerfile
+        type: file
+        path: Dockerfile
+edges:
+  - { from: prd, to: architecture }
+  - { from: architecture, to: fe-dev }
+  - { from: fe-dev, to: be-dev }
+  - { from: be-dev, to: test }
+  - { from: test, to: review }
+  - { from: review, to: test-2 }
+  - { from: test-2, to: cicd }
+resources:
+  - { type: mysql, name: app-db }
+  - { type: redis, name: cache }

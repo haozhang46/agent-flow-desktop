@@ -1,0 +1,10 @@
+version: 1
+hosts: []
+deployProfiles: []
+logPolicy:
+  strategy: A1
+  persist: true
+  defaultTailLines: 200
+  maxFilesPerNode: 30
+  clientFilter: true
+  externalLogUrl: null

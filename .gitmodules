@@ -1,0 +1,3 @@
+[submodule "packages/shared-ui"]
+	path = packages/shared-ui
+	url = git@github.com:haozhang46/agent-flow-shared-ui.git

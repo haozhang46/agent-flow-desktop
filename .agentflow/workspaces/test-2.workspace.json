@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "stepId": "test-2",
+  "layout": "stack",
+  "components": [
+    {
+      "id": "run",
+      "type": "agent-run",
+      "props": {
+        "reportPath": "regression-report.md"
+      }
+    }
+  ]
+}

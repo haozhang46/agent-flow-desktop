@@ -1,0 +1,56 @@
+{
+  "version": 1,
+  "stepId": "cicd",
+  "layout": "tabs",
+  "components": [
+    {
+      "id": "pipeline",
+      "type": "markdown-doc",
+      "label": "部署流水线",
+      "props": {
+        "mode": "file-list",
+        "files": [{ "path": "docs/cicd-pipeline.md", "label": "Pipeline" }]
+      }
+    },
+    {
+      "id": "dockerfile",
+      "type": "markdown-doc",
+      "label": "Dockerfile",
+      "props": {
+        "mode": "file-list",
+        "files": [{ "path": "Dockerfile", "label": "Dockerfile" }]
+      }
+    },
+    {
+      "id": "workflows",
+      "type": "markdown-doc",
+      "label": "GitHub Actions",
+      "props": {
+        "docsDir": ".github/workflows"
+      }
+    },
+    {
+      "id": "compose",
+      "type": "markdown-doc",
+      "label": "Compose",
+      "props": {
+        "mode": "file-list",
+        "files": [{ "path": "docker-compose.yml", "label": "docker-compose.yml" }]
+      }
+    },
+    {
+      "id": "readiness",
+      "type": "cicd-readiness",
+      "label": "就绪检查",
+      "props": {
+        "gatesStepId": "cicd"
+      }
+    },
+    {
+      "id": "deploy",
+      "type": "cicd-config",
+      "label": "部署概览",
+      "props": {}
+    }
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "stepId": "review",
+  "layout": "stack",
+  "components": [
+    {
+      "id": "run",
+      "type": "agent-run",
+      "props": {
+        "reportPath": "review-notes.md"
+      }
+    }
+  ]
+}

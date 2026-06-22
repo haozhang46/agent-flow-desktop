@@ -1,0 +1,66 @@
+{
+  "version": 1,
+  "stepId": "fe-dev",
+  "layout": "tabs",
+  "components": [
+    {
+      "id": "arch",
+      "type": "fe-architecture-plan",
+      "label": "分层架构",
+      "props": {
+        "output": "docs/fe-architecture.md",
+        "layers": ["pages", "components", "composables", "stores", "api"]
+      }
+    },
+    {
+      "id": "dataflow",
+      "type": "markdown-doc",
+      "label": "数据流",
+      "props": {
+        "mode": "file-list",
+        "files": [{ "path": "docs/fe-dataflow.md", "label": "FE Data Flow" }]
+      }
+    },
+    {
+      "id": "api-context",
+      "type": "topology-context",
+      "label": "API 连接",
+      "props": {
+        "focusNodes": ["api"],
+        "envKeys": ["NUXT_PUBLIC_API_BASE"]
+      }
+    },
+    {
+      "id": "rules",
+      "type": "agent-rules-editor",
+      "label": "Agent 规则",
+      "props": {
+        "files": [
+          { "path": "AGENTS.md", "label": "AGENTS.md" },
+          { "path": "CLAUDE.md", "label": "CLAUDE.md" },
+          { "path": "fe/AGENTS.md", "label": "FE AGENTS.md" }
+        ],
+        "editable": true
+      }
+    },
+    {
+      "id": "style",
+      "type": "style-tokens-editor",
+      "label": "基础样式",
+      "props": {
+        "preset": "unocss",
+        "target": "fe/uno.config.ts",
+        "themeFile": "fe/app/assets/theme.json"
+      }
+    },
+    {
+      "id": "code",
+      "type": "code-explorer",
+      "label": "代码",
+      "props": {
+        "root": "fe",
+        "writable": false
+      }
+    }
+  ]
+}
