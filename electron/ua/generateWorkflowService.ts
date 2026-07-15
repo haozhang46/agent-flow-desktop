@@ -131,6 +131,19 @@ export async function applyDraft(
   draft: WorkflowDraft,
   preferredId?: string,
 ): Promise<{ workflowId: string }> {
+  acquireProjectLock(projectRoot, "apply");
+  try {
+    return await applyDraftUnlocked(projectRoot, draft, preferredId);
+  } finally {
+    releaseProjectLock(projectRoot, "apply");
+  }
+}
+
+async function applyDraftUnlocked(
+  projectRoot: string,
+  draft: WorkflowDraft,
+  preferredId?: string,
+): Promise<{ workflowId: string }> {
   const validated = assertValidDraft(draft);
   const baseId =
     (preferredId?.trim() ||

@@ -73,4 +73,15 @@ describe("WorkflowDraftReview", () => {
     expect(wrapper.emitted("cancel")).toHaveLength(1);
     expect(wrapper.emitted("regenerate")).toHaveLength(1);
   });
+
+  it("disables actions and shows Applying… while applying", () => {
+    const wrapper = mount(WorkflowDraftReview, {
+      props: { draft, applying: true },
+    });
+
+    expect(wrapper.get('[data-testid="ua-draft-confirm"]').text()).toBe("Applying…");
+    expect(wrapper.get('[data-testid="ua-draft-confirm"]').attributes("disabled")).toBeDefined();
+    expect(wrapper.get('[data-testid="ua-draft-cancel"]').attributes("disabled")).toBeDefined();
+    expect(wrapper.get('[data-testid="ua-draft-regenerate"]').attributes("disabled")).toBeDefined();
+  });
 });

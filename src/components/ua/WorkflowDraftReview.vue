@@ -3,6 +3,7 @@ import type { WorkflowDraft } from "../../types/ua";
 
 defineProps<{
   draft: WorkflowDraft;
+  applying?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -71,27 +72,30 @@ const emit = defineEmits<{
     <div class="flex flex-wrap gap-2 px-3 py-2.5 border-t border-gray-100 bg-white">
       <button
         type="button"
-        class="text-xs px-3 py-1.5 rounded-lg border border-gray-300 hover:bg-gray-50"
+        class="text-xs px-3 py-1.5 rounded-lg border border-gray-300 hover:bg-gray-50 disabled:opacity-50"
         data-testid="ua-draft-cancel"
+        :disabled="applying"
         @click="emit('cancel')"
       >
         Cancel
       </button>
       <button
         type="button"
-        class="text-xs px-3 py-1.5 rounded-lg border border-gray-300 hover:bg-gray-50"
+        class="text-xs px-3 py-1.5 rounded-lg border border-gray-300 hover:bg-gray-50 disabled:opacity-50"
         data-testid="ua-draft-regenerate"
+        :disabled="applying"
         @click="emit('regenerate')"
       >
         Regenerate
       </button>
       <button
         type="button"
-        class="text-xs px-3 py-1.5 rounded-lg bg-blue-600 text-white hover:bg-blue-700 ml-auto"
+        class="text-xs px-3 py-1.5 rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 ml-auto"
         data-testid="ua-draft-confirm"
+        :disabled="applying"
         @click="emit('confirm')"
       >
-        Confirm
+        {{ applying ? "Applying…" : "Confirm" }}
       </button>
     </div>
   </div>

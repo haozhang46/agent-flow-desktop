@@ -249,6 +249,33 @@ describe("ProjectUnderstandPanel", () => {
     expect(wrapper.emitted("applied")).toEqual([["ua-fixture"]]);
   });
 
+  it("confirm shows Applying… and disables draft actions while apply is in flight", async () => {
+    fetchStatus.mockResolvedValue(readyStatus);
+    let resolveApply!: (value: { workflowId: string }) => void;
+    applyWorkflow.mockReturnValue(
+      new Promise((resolve) => {
+        resolveApply = resolve;
+      }),
+    );
+
+    const wrapper = mount(ProjectUnderstandPanel, { props: { show: true } });
+    await settle();
+
+    await wrapper.get('[data-testid="ua-generate"]').trigger("click");
+    await settle();
+
+    await wrapper.get('[data-testid="ua-draft-confirm"]').trigger("click");
+    await flushPromises();
+
+    expect(wrapper.get('[data-testid="ua-draft-confirm"]').text()).toBe("Applying…");
+    expect(wrapper.get('[data-testid="ua-draft-confirm"]').attributes("disabled")).toBeDefined();
+    expect(wrapper.get('[data-testid="ua-draft-cancel"]').attributes("disabled")).toBeDefined();
+    expect(wrapper.get('[data-testid="ua-draft-regenerate"]').attributes("disabled")).toBeDefined();
+
+    resolveApply({ workflowId: "ua-fixture" });
+    await settle();
+  });
+
   it("draft cancel clears review; regenerate calls generate again", async () => {
     fetchStatus.mockResolvedValue(readyStatus);
     const wrapper = mount(ProjectUnderstandPanel, { props: { show: true } });

@@ -1,4 +1,4 @@
-export type LockKind = "analyze" | "generate";
+export type LockKind = "analyze" | "generate" | "apply";
 
 const locks = new Map<string, LockKind>();
 

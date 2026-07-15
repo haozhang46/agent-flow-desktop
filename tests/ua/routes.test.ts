@@ -397,4 +397,40 @@ describe("UA HTTP routes /v1/ua/*", () => {
     );
     expect(res.status).toBe(400);
   });
+
+  it("POST /v1/ua/apply-workflow returns 409 when analyze is busy", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+
+    setUaRunnersForTests({
+      analyzeRunner: async ({ onProgress }) => {
+        onProgress({ phase: "extract", message: "holding" });
+        await gate;
+        return loadFixture();
+      },
+    });
+
+    await request(port, "POST", "/v1/ua/analyze", "{}");
+    await waitFor(async () => {
+      const status = await request(port, "GET", "/v1/ua/status");
+      return JSON.parse(status.body).busy === true;
+    });
+
+    const res = await request(
+      port,
+      "POST",
+      "/v1/ua/apply-workflow",
+      JSON.stringify({ draft: makeDraft() }),
+    );
+    expect(res.status).toBe(409);
+    expect(JSON.parse(res.body).detail).toMatch(/analyze in progress/i);
+
+    release();
+    await waitFor(async () => {
+      const status = await request(port, "GET", "/v1/ua/status");
+      return JSON.parse(status.body).busy === false;
+    });
+  });
 });

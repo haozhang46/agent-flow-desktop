@@ -253,6 +253,12 @@ export async function handleUaRoutes(
     const projectRoot = requireProjectRoot(getWorkspaceRoot, res);
     if (!projectRoot) return true;
 
+    const busyKind = getUaBusyKind(projectRoot);
+    if (busyKind) {
+      jsonResponse(res, 409, { detail: `${busyKind} in progress` });
+      return true;
+    }
+
     let payload: { draft?: unknown; activate?: boolean };
     try {
       payload = JSON.parse(await readBody(req)) as {
@@ -282,6 +288,10 @@ export async function handleUaRoutes(
         return true;
       }
       const message = err instanceof Error ? err.message : String(err);
+      if (/in progress/i.test(message)) {
+        jsonResponse(res, 409, { detail: message });
+        return true;
+      }
       jsonResponse(res, 400, { detail: message });
     }
     return true;

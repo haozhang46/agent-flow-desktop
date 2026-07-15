@@ -147,7 +147,7 @@ async function onGenerate(): Promise<void> {
 }
 
 async function onConfirmDraft(): Promise<void> {
-  if (!draft.value) return;
+  if (!draft.value || applying.value) return;
   error.value = null;
   applying.value = true;
   try {
@@ -282,6 +282,7 @@ onUnmounted(() => {
         <WorkflowDraftReview
           v-if="draft"
           :draft="draft"
+          :applying="applying"
           @confirm="onConfirmDraft"
           @cancel="onCancelDraft"
           @regenerate="onRegenerateDraft"
