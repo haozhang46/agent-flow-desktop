@@ -183,4 +183,15 @@ describe("useClarification", () => {
     expect(error.value).toContain("400");
     expect(pending.value).not.toBeNull();
   });
+
+  it("restorePending resets submitting card after SSE consume failure", () => {
+    const { applyClarificationEvent, restorePending, cardStatus, error } = useClarification();
+    applyClarificationEvent(payload);
+    // simulate submit() having set submitting after HTTP 200
+    cardStatus.value = "submitting";
+
+    restorePending("stream interrupted");
+    expect(cardStatus.value).toBe("pending");
+    expect(error.value).toBe("stream interrupted");
+  });
 });

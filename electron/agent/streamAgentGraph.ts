@@ -73,7 +73,8 @@ export function prepareResume(
     return { ok: false, status: validation.status, detail: validation.detail };
   }
 
-  service.markAnswered(threadId, clarificationId);
+  // Keep pending until the resume stream completes successfully so mid-stream
+  // failures can retry without a 409.
   const serialized = service.serializeAnswerForTool(pending, answer);
   return { ok: true, serialized, pending };
 }
@@ -125,9 +126,65 @@ function* emitClarificationFromInterrupts(
   service: ClarificationService,
 ): Generator<AgentGraphStreamEvent> {
   const pending = resolvePendingFromInterrupts(threadId, interrupts, service);
-  if (!pending) return;
+  if (!pending) {
+    yield {
+      event: "on_chat_model_stream",
+      data: {
+        chunk: {
+          content:
+            "Error: clarification interrupt could not be resolved (missing pending state)",
+        },
+      },
+    };
+    return;
+  }
   yield clarificationEventFromPending(threadId, pending);
   yield { event: "awaiting_clarification" };
+}
+
+export function buildResumeCommand(serialized: string): Command {
+  return new Command({ resume: serialized });
+}
+
+const CANCELLED_RESUME = JSON.stringify({ cancelled: true });
+
+/** Minimal agent surface used to clear a leftover interrupt after cancel. */
+export type InterruptibleAgent = {
+  getState: (config: {
+    configurable?: { thread_id?: string; [key: string]: unknown };
+  }) => Promise<{ tasks?: Array<{ interrupts?: unknown[] }> }>;
+  stream: (
+    input: unknown,
+    config: unknown,
+  ) => Promise<AsyncIterable<unknown>> | AsyncIterable<unknown>;
+};
+
+/**
+ * Best-effort: if the checkpoint is still interrupted after cancelThread,
+ * resume with a cancelled payload so a new HumanMessage turn can proceed.
+ * Swallows errors when there is nothing to resume.
+ */
+export async function abandonInterruptedClarification(
+  agent: InterruptibleAgent,
+  config: { configurable?: { thread_id?: string; [key: string]: unknown } },
+): Promise<void> {
+  try {
+    const state = await agent.getState(config);
+    const interrupted = (state.tasks ?? []).some(
+      (task) => Array.isArray(task.interrupts) && task.interrupts.length > 0,
+    );
+    if (!interrupted) return;
+
+    const stream = await agent.stream(buildResumeCommand(CANCELLED_RESUME), {
+      ...config,
+      streamMode: ["updates"],
+    });
+    for await (const _ of stream) {
+      // drain resume so the interrupt is cleared
+    }
+  } catch {
+    // nothing to resume, or resume failed — new turn may still proceed
+  }
 }
 
 export async function* streamCompiledAgent(
@@ -215,10 +272,6 @@ export async function* streamCompiledAgent(
     }
     throw err;
   }
-}
-
-export function buildResumeCommand(serialized: string): Command {
-  return new Command({ resume: serialized });
 }
 
 export class ClarificationResumeError extends Error {

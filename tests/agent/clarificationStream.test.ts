@@ -3,6 +3,7 @@ import { GraphInterrupt } from "@langchain/langgraph";
 import { ClarificationService } from "../../electron/agent/clarificationService";
 import type { PendingClarification } from "../../electron/agent/clarificationTypes";
 import {
+  abandonInterruptedClarification,
   clarificationEventFromPending,
   prepareResume,
   streamCompiledAgent,
@@ -84,7 +85,7 @@ describe("prepareResume", () => {
     if (!r.ok) expect(r.status).toBe(400);
   });
 
-  it("marks answered and returns serialized resume value", () => {
+  it("returns serialized resume value without marking answered", () => {
     svc.createPending("agent:t1", "call_1", args);
     const r = prepareResume(svc, "agent:t1", "call_1", {
       selected_option_ids: ["yes"],
@@ -92,7 +93,7 @@ describe("prepareResume", () => {
     });
     expect(r.ok).toBe(true);
     if (!r.ok) return;
-    expect(svc.getPending("agent:t1", "call_1")?.status).toBe("answered");
+    expect(svc.getPending("agent:t1", "call_1")?.status).toBe("pending");
     const parsed = JSON.parse(r.serialized) as {
       selected_option_ids: string[];
       labels: string[];
@@ -173,6 +174,101 @@ describe("streamCompiledAgent interrupt detection", () => {
       clarificationEventFromPending("agent:t1", pendingFixture()),
       { event: "awaiting_clarification" },
     ]);
+  });
+
+  it("emits error stream chunk when interrupt pending cannot be resolved", async () => {
+    const svc = new ClarificationService();
+
+    const agent = {
+      stream: vi.fn(async function* () {
+        yield [
+          "updates",
+          {
+            __interrupt__: [
+              {
+                value: { clarification_id: "orphan" },
+                when: "during",
+              },
+            ],
+          },
+        ];
+      }),
+    };
+
+    const events = [];
+    for await (const ev of streamCompiledAgent(
+      agent as never,
+      { messages: [] },
+      {
+        configurable: { thread_id: "agent:t1" },
+        clarificationService: svc,
+      },
+    )) {
+      events.push(ev);
+    }
+
+    expect(events).toHaveLength(1);
+    expect(events[0]?.event).toBe("on_chat_model_stream");
+    expect(String((events[0]?.data as { chunk?: { content?: string } })?.chunk?.content)).toMatch(
+      /could not be resolved/i,
+    );
+  });
+});
+
+describe("abandonInterruptedClarification", () => {
+  it("resumes with cancelled payload when checkpoint has interrupts", async () => {
+    const streamFn = vi.fn(async function* () {
+      yield ["updates", {}];
+    });
+    const agent = {
+      getState: vi.fn(async () => ({
+        tasks: [{ interrupts: [{ value: { clarification_id: "c1" } }] }],
+      })),
+      stream: streamFn,
+    };
+
+    await abandonInterruptedClarification(agent, {
+      configurable: { thread_id: "agent:t1" },
+    });
+
+    expect(streamFn).toHaveBeenCalledTimes(1);
+    const [input, config] = streamFn.mock.calls[0]!;
+    expect(input).toMatchObject({ resume: JSON.stringify({ cancelled: true }) });
+    expect(config).toMatchObject({
+      configurable: { thread_id: "agent:t1" },
+      streamMode: ["updates"],
+    });
+  });
+
+  it("does nothing when there are no interrupts", async () => {
+    const streamFn = vi.fn(async function* () {
+      yield ["updates", {}];
+    });
+    const agent = {
+      getState: vi.fn(async () => ({ tasks: [] })),
+      stream: streamFn,
+    };
+
+    await abandonInterruptedClarification(agent, {
+      configurable: { thread_id: "agent:t1" },
+    });
+
+    expect(streamFn).not.toHaveBeenCalled();
+  });
+
+  it("swallows errors from getState/stream", async () => {
+    const agent = {
+      getState: vi.fn(async () => {
+        throw new Error("no checkpoint");
+      }),
+      stream: vi.fn(),
+    };
+
+    await expect(
+      abandonInterruptedClarification(agent, {
+        configurable: { thread_id: "agent:t1" },
+      }),
+    ).resolves.toBeUndefined();
   });
 });
 

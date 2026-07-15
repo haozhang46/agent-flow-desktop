@@ -150,6 +150,7 @@ export function useChatStream(
       return { awaitingClarification: result.awaitingClarification };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
+      clarification.restorePending(message);
       return { error: message };
     } finally {
       sending.value = false;

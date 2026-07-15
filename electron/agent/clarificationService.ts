@@ -63,6 +63,10 @@ export class ClarificationService {
     pending: PendingClarification,
     answer: ClarificationAnswer,
   ): { ok: true } | { ok: false; status: 400; detail: string } {
+    if (answer.selected_option_ids.length === 0) {
+      return { ok: false, status: 400, detail: "At least one option must be selected" };
+    }
+
     const validIds = new Set(pending.options.map((o) => o.id));
 
     for (const id of answer.selected_option_ids) {
@@ -73,6 +77,14 @@ export class ClarificationService {
 
     if (!pending.allow_multiple && answer.selected_option_ids.length > 1) {
       return { ok: false, status: 400, detail: "Multiple selections not allowed" };
+    }
+
+    if (
+      !pending.allow_free_text &&
+      typeof answer.free_text === "string" &&
+      answer.free_text.length > 0
+    ) {
+      return { ok: false, status: 400, detail: "Free text is not allowed" };
     }
 
     return { ok: true };

@@ -35,6 +35,32 @@ describe("ClarificationService", () => {
     if (!r.ok) expect(r.status).toBe(400);
   });
 
+  it("validateAnswer rejects empty selected_option_ids with 400", () => {
+    const p = svc.createPending("t1", "call_1", args);
+    const r = svc.validateAnswer(p, { selected_option_ids: [], free_text: "only text" });
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.status).toBe(400);
+      expect(r.detail).toMatch(/at least one option/i);
+    }
+  });
+
+  it("validateAnswer rejects free_text when allow_free_text is false", () => {
+    const p = svc.createPending("t1", "call_1", { ...args, allow_free_text: false });
+    const r = svc.validateAnswer(p, { selected_option_ids: ["yes"], free_text: "nope" });
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.status).toBe(400);
+      expect(r.detail).toMatch(/free text/i);
+    }
+  });
+
+  it("validateAnswer allows free_text when allow_free_text is true", () => {
+    const p = svc.createPending("t1", "call_1", args);
+    const r = svc.validateAnswer(p, { selected_option_ids: ["yes"], free_text: "ok" });
+    expect(r.ok).toBe(true);
+  });
+
   it("validateAnswer rejects multi-select overflow when allow_multiple is false", () => {
     const p = svc.createPending("t1", "call_1", args);
     const r = svc.validateAnswer(p, { selected_option_ids: ["yes", "no"] });

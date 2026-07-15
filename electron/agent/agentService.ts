@@ -10,6 +10,7 @@ import { getRecursionLimit } from "./recursionLimit";
 import { buildStreamingReactAgent } from "./reactGraph";
 import { streamChunkText } from "./streamChunk";
 import {
+  abandonInterruptedClarification,
   buildResumeCommand,
   ClarificationResumeError,
   prepareResume,
@@ -167,15 +168,17 @@ export class AgentService {
     const agent = this.buildAgentForStream(mode, checkpointThreadId, options);
     const systemPrompt = await this.buildSystemPrompt(mode, checkpointThreadId, options);
 
+    const config = {
+      configurable: { thread_id: checkpointThreadId },
+      recursionLimit: getRecursionLimit(),
+    };
+
+    await abandonInterruptedClarification(agent, config);
+
     const input = {
       messages: [
         new HumanMessage(`${systemPrompt}\n\n---\n\n${message}`),
       ],
-    };
-
-    const config = {
-      configurable: { thread_id: checkpointThreadId },
-      recursionLimit: getRecursionLimit(),
     };
 
     let assistantText = "";
@@ -238,6 +241,8 @@ export class AgentService {
         assistantText += streamChunkText(chunk?.content);
       }
     }
+
+    clarificationService.markAnswered(checkpointThreadId, clarificationId);
 
     if (!awaitingClarification && mode === "plan" && assistantText.trim()) {
       yield { event: "plan_ready", data: { content: assistantText.trim() } };

@@ -962,6 +962,7 @@ async function onClarificationSubmit(answer: ClarificationAnswer) {
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
+    clarification.restorePending(message);
     actionError.value = message;
   } finally {
     if (isStep) {

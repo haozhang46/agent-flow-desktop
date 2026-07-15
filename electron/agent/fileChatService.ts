@@ -11,6 +11,7 @@ import { buildFileChatLangChainTools } from "./fileChatTools";
 import { buildFileChatSystemPrompt } from "./prompt";
 import { getRecursionLimit } from "./recursionLimit";
 import {
+  abandonInterruptedClarification,
   buildResumeCommand,
   ClarificationResumeError,
   prepareResume,
@@ -153,6 +154,12 @@ export async function* streamFileChat(req: FileChatRequest): AsyncIterable<FileC
 
   const systemPrompt = await buildFileChatSystemPrompt(req.paths, req.skills ?? []);
   const agent = buildFileChatAgent(req);
+  const config = {
+    configurable: { thread_id: req.checkpointThreadId },
+    recursionLimit: getRecursionLimit(),
+  };
+
+  await abandonInterruptedClarification(agent, config);
 
   yield* mapStreamToStepEvents(
     streamCompiledAgent(
@@ -163,10 +170,7 @@ export async function* streamFileChat(req: FileChatRequest): AsyncIterable<FileC
           new HumanMessage(req.message.trim() || "Help me with the attached file(s)."),
         ],
       },
-      {
-        configurable: { thread_id: req.checkpointThreadId },
-        recursionLimit: getRecursionLimit(),
-      },
+      config,
     ),
   );
 }
@@ -198,4 +202,5 @@ export async function* resumeFileChatClarification(params: {
       },
     ),
   );
+  clarificationService.markAnswered(request.checkpointThreadId, clarificationId);
 }

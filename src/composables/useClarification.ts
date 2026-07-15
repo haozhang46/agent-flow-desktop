@@ -40,6 +40,13 @@ export function useClarification(options: UseClarificationOptions = {}) {
     error.value = null;
   }
 
+  /** After HTTP 200, if SSE consume fails — restore pending so the user can retry. */
+  function restorePending(message: string) {
+    if (cardStatus.value !== "submitting" && cardStatus.value !== "pending") return;
+    cardStatus.value = "pending";
+    error.value = message;
+  }
+
   async function submit(answer: ClarificationAnswer): Promise<AsyncGenerator<SseEvent>> {
     const current = pending.value;
     if (!current) {
@@ -74,6 +81,7 @@ export function useClarification(options: UseClarificationOptions = {}) {
     applyClarificationEvent,
     cancelPending,
     markAnswered,
+    restorePending,
     submit,
   };
 }
