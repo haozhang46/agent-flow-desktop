@@ -16,6 +16,31 @@ async function loadFixture(): Promise<KnowledgeGraph> {
   return assertValidGraph(JSON.parse(raw));
 }
 
+function runnerInput(
+  workspaceRoot: string,
+  overrides?: {
+    inventories?: InventoryEntry[];
+    previous?: KnowledgeGraph | null;
+  },
+) {
+  return {
+    workspaceRoot,
+    inventories: overrides?.inventories ?? [],
+    selectedRootIds: ["main"],
+    rootMetas: [
+      {
+        id: "main",
+        label: "Main",
+        path: ".",
+        gitCommitHash: null,
+      },
+    ],
+    previous: overrides?.previous ?? null,
+    onProgress: () => {},
+    signal: new AbortController().signal,
+  };
+}
+
 describe("createLlmAnalyzeRunner", () => {
   let tmp: string;
 
@@ -33,15 +58,7 @@ describe("createLlmAnalyzeRunner", () => {
       completeJson: async () => ({}),
     });
 
-    await expect(
-      runner({
-        projectRoot: tmp,
-        inventory: [],
-        previous: null,
-        onProgress: () => {},
-        signal: new AbortController().signal,
-      }),
-    ).rejects.toThrow("API key not set");
+    await expect(runner(runnerInput(tmp))).rejects.toThrow("API key not set");
   });
 
   it("loads understand skill and validates stub completeJson graph", async () => {
@@ -58,23 +75,21 @@ describe("createLlmAnalyzeRunner", () => {
       },
     });
 
-    const inventory: InventoryEntry[] = [
-      { path: "src/main.ts", bytes: 100 },
+    const inventories: InventoryEntry[] = [
+      { rootId: "main", path: "src/main.ts", bytes: 100 },
     ];
 
-    const graph = await runner({
-      projectRoot: tmp,
-      inventory,
-      previous: null,
-      onProgress: () => {},
-      signal: new AbortController().signal,
-    });
+    const graph = await runner(
+      runnerInput(tmp, { inventories }),
+    );
 
     expect(graph).toEqual(fixture);
     expect(capturedSystem).toContain("understand");
     expect(capturedSystem).toContain("KnowledgeGraph");
     expect(capturedUser).toContain("src/main.ts");
     expect(capturedUser).toContain("outputLanguage");
+    expect(capturedUser).toContain("inventories");
+    expect(capturedUser).toContain("root:{rootId}");
   });
 
   it("strips markdown fences from string completeJson responses", async () => {
@@ -86,13 +101,7 @@ describe("createLlmAnalyzeRunner", () => {
       completeJson: async () => fenced,
     });
 
-    const graph = await runner({
-      projectRoot: tmp,
-      inventory: [],
-      previous: null,
-      onProgress: () => {},
-      signal: new AbortController().signal,
-    });
+    const graph = await runner(runnerInput(tmp));
 
     expect(graph).toEqual(fixture);
   });
@@ -110,13 +119,7 @@ describe("createLlmAnalyzeRunner", () => {
       },
     });
 
-    await runner({
-      projectRoot: tmp,
-      inventory: [],
-      previous: null,
-      onProgress: () => {},
-      signal: new AbortController().signal,
-    });
+    await runner(runnerInput(tmp));
 
     expect(capturedUser).toContain('"outputLanguage": "zh"');
   });
@@ -127,14 +130,6 @@ describe("createLlmAnalyzeRunner", () => {
       completeJson: async () => ({ not: "a graph" }),
     });
 
-    await expect(
-      runner({
-        projectRoot: tmp,
-        inventory: [],
-        previous: null,
-        onProgress: () => {},
-        signal: new AbortController().signal,
-      }),
-    ).rejects.toThrow();
+    await expect(runner(runnerInput(tmp))).rejects.toThrow();
   });
 });

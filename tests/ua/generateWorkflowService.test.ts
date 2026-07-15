@@ -364,6 +364,7 @@ describe("analyze vs generate mutual exclusion", () => {
           frameworks: [],
           analyzedAt: "2026-07-15T00:00:00.000Z",
           gitCommitHash: null,
+          roots: [],
         },
         nodes: [],
         edges: [],

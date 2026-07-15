@@ -1,5 +1,9 @@
 import { loadSkillBodies } from "../skills/loader";
-import type { AnalyzeGraphRunner, AnalyzeProgress } from "./analyzeService";
+import type {
+  AnalyzeGraphRunner,
+  AnalyzeProgress,
+  AnalyzeRootMeta,
+} from "./analyzeService";
 import { assertValidGraph, readUaConfig } from "./graphStore";
 import type { InventoryEntry } from "./inventory";
 import type { KnowledgeGraph } from "./types";
@@ -31,17 +35,27 @@ function coerceToObject(raw: unknown): unknown {
 }
 
 function buildUserPrompt(input: {
-  projectRoot: string;
-  inventory: InventoryEntry[];
+  workspaceRoot: string;
+  inventories: InventoryEntry[];
+  selectedRootIds: string[];
+  rootMetas: AnalyzeRootMeta[];
   previous: KnowledgeGraph | null;
   outputLanguage: string;
 }): string {
   return JSON.stringify(
     {
-      projectRoot: input.projectRoot,
+      workspaceRoot: input.workspaceRoot,
       outputLanguage: input.outputLanguage,
-      inventory: input.inventory,
+      selectedRootIds: input.selectedRootIds,
+      rootMetas: input.rootMetas,
+      inventories: input.inventories,
       previous: input.previous,
+      instructions: [
+        "Emit a KnowledgeGraph covering only the selected roots.",
+        "Namespace node ids as root:{rootId}/... and set node.rootId.",
+        "filePath values are relative to that root, not the workspace.",
+        "Fill project.roots with metadata for each selected root.",
+      ],
     },
     null,
     2,
@@ -64,12 +78,14 @@ export function createLlmAnalyzeRunner(
 
     onProgress({ phase: "extract", message: "Loading understand skill" });
     const [skillBody] = await loadSkillBodies(["understand"]);
-    const config = await readUaConfig(input.projectRoot);
+    const config = await readUaConfig(input.workspaceRoot);
 
     const system = skillBody;
     const user = buildUserPrompt({
-      projectRoot: input.projectRoot,
-      inventory: input.inventory,
+      workspaceRoot: input.workspaceRoot,
+      inventories: input.inventories,
+      selectedRootIds: input.selectedRootIds,
+      rootMetas: input.rootMetas,
       previous: input.previous,
       outputLanguage: config.outputLanguage,
     });

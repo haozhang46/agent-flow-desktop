@@ -89,8 +89,8 @@ describe("UA analyze → generate → apply (e2e)", () => {
 
     const fixture = await loadFixture();
     setUaRunnersForTests({
-      analyzeRunner: async ({ onProgress, inventory }) => {
-        expect(inventory).toEqual([]);
+      analyzeRunner: async ({ onProgress, inventories }) => {
+        expect(inventories).toEqual([]);
         onProgress({ phase: "extract", message: "stub extract" });
         onProgress({ phase: "relate", message: "stub relate" });
         return fixture;

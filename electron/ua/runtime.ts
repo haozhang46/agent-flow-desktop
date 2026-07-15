@@ -98,7 +98,7 @@ export function cancelUaAnalyze(projectRoot: string, getApiKey: () => string | n
 
 export function startUaAnalyze(
   projectRoot: string,
-  opts: { forceFull?: boolean } | undefined,
+  opts: { forceFull?: boolean; rootIds?: string[] } | undefined,
   getApiKey: () => string | null,
 ): Promise<unknown> {
   const service = getAnalyzeService(getApiKey);
