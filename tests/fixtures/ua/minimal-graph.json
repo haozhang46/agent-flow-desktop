@@ -1,0 +1,31 @@
+{
+  "project": {
+    "name": "fixture-app",
+    "description": "Minimal UA graph for tests",
+    "languages": ["typescript"],
+    "frameworks": ["vue"],
+    "analyzedAt": "2026-07-15T00:00:00.000Z",
+    "gitCommitHash": null
+  },
+  "nodes": [
+    {
+      "id": "file:src/main.ts",
+      "type": "file",
+      "name": "main.ts",
+      "filePath": "src/main.ts",
+      "summary": "App entry",
+      "tags": ["entry"],
+      "complexity": "low"
+    }
+  ],
+  "edges": [],
+  "layers": [
+    {
+      "id": "layer:ui",
+      "name": "UI",
+      "description": "Frontend entry",
+      "nodeIds": ["file:src/main.ts"]
+    }
+  ],
+  "tour": []
+}
