@@ -127,3 +127,7 @@ Feed **summary + curated subgraph** (layers, flows, key modules), not the entire
 - Full feature parity with every UA slash command (`/understand-domain`, `/understand-diff`, etc.) beyond what analyze + graph viewer need.
 - Optional analyze path scoping for huge monorepos.
 - Auto-update post-commit hooks (UA’s `--auto-update`) — later if needed.
+
+## Amendment: multi-root workspace
+
+Single-`projectRoot` assumptions above are **superseded** for implementation by `2026-07-15-ua-multi-root-workspace-design.md`: the open folder is a workspace root that may reference multiple source folders/git repos; `.ua/` and `.agentflow/` stay on the workspace. Two-phase analyze → generate UX and free generation goals remain as written here.
