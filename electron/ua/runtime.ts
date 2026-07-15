@@ -4,6 +4,7 @@ import {
   type AnalyzeProgress,
 } from "./analyzeService";
 import type { GenerateWorkflowRunner } from "./generateWorkflowService";
+import { createCompleteJson, createLlmGenerateRunner } from "./llmComplete";
 import { createLlmAnalyzeRunner } from "./llmAnalyzeRunner";
 import { getProjectLock, type LockKind } from "./projectLock";
 
@@ -62,26 +63,23 @@ function getAnalyzeService(getApiKey: () => string | null): AnalyzeService {
       testOverrides?.analyzeRunner ??
       createLlmAnalyzeRunner({
         getApiKey,
-        completeJson: async () => {
-          throw new Error(
-            "UA analyze LLM not configured; inject via setUaRunnersForTests in tests",
-          );
-        },
+        completeJson: createCompleteJson(getApiKey),
       });
     analyzeServiceInstance = new AnalyzeService(runner);
   }
   return analyzeServiceInstance;
 }
 
-function getGenerateRunner(): GenerateWorkflowRunner {
+function getGenerateRunner(
+  getApiKey: () => string | null,
+): GenerateWorkflowRunner {
   if (testOverrides?.generateRunner) {
     return testOverrides.generateRunner;
   }
-  return async () => {
-    throw new Error(
-      "UA generate LLM not configured; inject via setUaRunnersForTests in tests",
-    );
-  };
+  return createLlmGenerateRunner({
+    getApiKey,
+    completeJson: createCompleteJson(getApiKey),
+  });
 }
 
 export function getUaBusyKind(projectRoot: string): LockKind | null {
@@ -105,7 +103,15 @@ export function startUaAnalyze(
 ): Promise<unknown> {
   const service = getAnalyzeService(getApiKey);
   ensureProgressListener(service, projectRoot);
-  return service.start(projectRoot, opts);
+  return service.start(projectRoot, opts).catch((err) => {
+    const message = err instanceof Error ? err.message : String(err);
+    const prev = lastProgressByRoot.get(projectRoot);
+    lastProgressByRoot.set(projectRoot, {
+      phase: prev?.phase ?? "extract",
+      message: `Error: ${message}`,
+    });
+    throw err;
+  });
 }
 
 export function isUaAnalyzeBusy(

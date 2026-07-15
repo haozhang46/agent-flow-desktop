@@ -224,7 +224,11 @@ export async function handleUaRoutes(
     try {
       const goal =
         typeof payload.goal === "string" ? payload.goal : null;
-      const draft = await generateDraft(projectRoot, goal, getGenerateRunner());
+      const draft = await generateDraft(
+        projectRoot,
+        goal,
+        getGenerateRunner(getApiKey),
+      );
       jsonResponse(res, 200, { draft });
     } catch (err) {
       if (err instanceof ZodError) {
