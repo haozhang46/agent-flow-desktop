@@ -128,6 +128,8 @@ describe("useUa", () => {
         source: "ua-graph",
         analyzedAt: null,
         gitCommitHash: null,
+        gitCommitHashes: {},
+        rootIds: ["main"],
         goal: "ship it",
       },
     };

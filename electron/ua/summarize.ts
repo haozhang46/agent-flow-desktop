@@ -46,9 +46,16 @@ function compareNodesForCuration(
 function selectCuratedNodes(
   graph: KnowledgeGraph,
   maxNodes: number,
+  rootIds?: string[],
 ): GraphNode[] {
   const layerIds = layerNodeIds(graph);
-  return [...graph.nodes]
+  const rootFilter =
+    rootIds === undefined ? null : new Set(rootIds);
+  const candidates =
+    rootFilter === null
+      ? graph.nodes
+      : graph.nodes.filter((node) => rootFilter.has(node.rootId));
+  return [...candidates]
     .sort((a, b) => compareNodesForCuration(a, b, layerIds))
     .slice(0, maxNodes);
 }
@@ -102,13 +109,15 @@ function greenfieldBlurb(projectName: string): string {
 
 export function curatedSubgraphMarkdown(
   graph: KnowledgeGraph,
-  maxNodes: number = DEFAULT_MAX_NODES,
+  maxNodes?: number,
+  rootIds?: string[],
 ): string {
-  if (maxNodes <= 0) {
+  const limit = maxNodes ?? DEFAULT_MAX_NODES;
+  if (limit <= 0) {
     return greenfieldBlurb(graph.project.name);
   }
 
-  const selected = selectCuratedNodes(graph, maxNodes);
+  const selected = selectCuratedNodes(graph, limit, rootIds);
   const selectedIds = new Set(selected.map((node) => node.id));
   const relevantLayers = graph.layers.filter((layer) =>
     layer.nodeIds.some((nodeId) => selectedIds.has(nodeId)),
@@ -139,4 +148,13 @@ export function curatedSubgraphMarkdown(
   ];
 
   return lines.join("\n");
+}
+
+/** Curate a subgraph markdown scoped to optional rootIds. */
+export function curateSubgraph(
+  graph: KnowledgeGraph,
+  maxNodes?: number,
+  rootIds?: string[],
+): string {
+  return curatedSubgraphMarkdown(graph, maxNodes, rootIds);
 }

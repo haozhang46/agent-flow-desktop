@@ -5,6 +5,8 @@ export const WorkflowDraftMetaSchema = z.object({
   source: z.literal("ua-graph"),
   analyzedAt: z.string().nullable(),
   gitCommitHash: z.string().nullable(),
+  gitCommitHashes: z.record(z.string().nullable()),
+  rootIds: z.array(z.string()),
   goal: z.string().nullable(),
 });
 

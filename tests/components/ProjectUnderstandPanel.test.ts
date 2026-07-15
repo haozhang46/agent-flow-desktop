@@ -64,6 +64,8 @@ const draft: WorkflowDraft = {
     source: "ua-graph",
     analyzedAt: sampleSummary.analyzedAt,
     gitCommitHash: null,
+    gitCommitHashes: { main: null },
+    rootIds: ["main"],
     goal: null,
   },
 };

@@ -40,6 +40,7 @@ export const WorkflowStepSchema = z.object({
   advance: z.enum(["manual", "auto"]).optional(),
   gate: z.enum(["manual", "auto"]).optional(),
   requires_resources: z.array(z.string()).default([]),
+  rootId: z.string().optional(),
 });
 
 export const WorkflowEdgeSchema = z.object({

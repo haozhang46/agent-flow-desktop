@@ -113,6 +113,8 @@ function makeDraft(overrides?: Partial<WorkflowDraft>): WorkflowDraft {
       source: "ua-graph",
       analyzedAt: "2026-07-15T00:00:00.000Z",
       gitCommitHash: null,
+      gitCommitHashes: { main: null },
+      rootIds: ["main"],
       goal: "Ship a demo",
     },
   };
@@ -161,6 +163,8 @@ describe("UA HTTP routes /v1/ua/*", () => {
             source: "ua-graph",
             analyzedAt: "2026-07-15T00:00:00.000Z",
             gitCommitHash: null,
+            gitCommitHashes: { main: null },
+            rootIds: ["main"],
             goal,
           },
         }),

@@ -6,6 +6,7 @@ import { assertValidGraph } from "../../electron/ua/graphStore";
 import {
   summarizeGraph,
   curatedSubgraphMarkdown,
+  curateSubgraph,
 } from "../../electron/ua/summarize";
 import type { GraphNode, KnowledgeGraph } from "../../electron/ua/types";
 
@@ -37,6 +38,9 @@ function makeGraph(
   nodes: GraphNode[],
   edges: KnowledgeGraph["edges"] = [],
   layers: KnowledgeGraph["layers"] = [],
+  roots: KnowledgeGraph["project"]["roots"] = [
+    { id: "main", label: "Main", path: ".", gitCommitHash: null },
+  ],
 ): KnowledgeGraph {
   return {
     project: {
@@ -46,7 +50,7 @@ function makeGraph(
       frameworks: [],
       analyzedAt: "2026-07-15T00:00:00.000Z",
       gitCommitHash: null,
-      roots: [{ id: "main", label: "Main", path: ".", gitCommitHash: null }],
+      roots,
     },
     nodes,
     edges,
@@ -147,5 +151,48 @@ describe("curatedSubgraphMarkdown", () => {
       "a-layer-domain",
       "b-layer",
     ]);
+  });
+
+  it("filters curated nodes by rootIds and keeps cross-edges only when both ends selected", () => {
+    const nodes = [
+      makeNode("root:web/file:a.ts", [], "web"),
+      makeNode("root:web/file:b.ts", [], "web"),
+      makeNode("root:api/file:c.ts", [], "api"),
+    ];
+    const graph = makeGraph(
+      nodes,
+      [
+        {
+          source: "root:web/file:a.ts",
+          target: "root:web/file:b.ts",
+          type: "imports",
+        },
+        {
+          source: "root:web/file:a.ts",
+          target: "root:api/file:c.ts",
+          type: "calls",
+        },
+      ],
+      [
+        {
+          id: "layer:all",
+          name: "All",
+          description: "",
+          nodeIds: nodes.map((n) => n.id),
+        },
+      ],
+      [
+        { id: "web", label: "Web", path: "web", gitCommitHash: "aaa" },
+        { id: "api", label: "API", path: "api", gitCommitHash: "bbb" },
+      ],
+    );
+
+    const md = curateSubgraph(graph, 40, ["web"]);
+
+    expect(md).toContain("root:web/file:a.ts");
+    expect(md).toContain("root:web/file:b.ts");
+    expect(md).not.toContain("root:api/file:c.ts");
+    expect(md).toContain("`root:web/file:a.ts` → `root:web/file:b.ts`");
+    expect(md).not.toContain("`root:web/file:a.ts` → `root:api/file:c.ts`");
   });
 });

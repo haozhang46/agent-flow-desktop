@@ -9,7 +9,9 @@ import {
   summarizeGraph,
   type GraphSummary,
 } from "./summarize";
+import type { KnowledgeGraph } from "./types";
 import { listWorkflows } from "../workflow/loader";
+import { resolveRoots } from "../workspace/store";
 
 export const GREENFIELD_DEFAULT_GOAL =
   "Build a practical greenfield delivery workflow for this project.";
@@ -53,6 +55,56 @@ function summaryToMarkdown(summary: GraphSummary): string {
   return lines.join("\n");
 }
 
+function resolveSelectedRootIds(
+  graph: KnowledgeGraph,
+  rootIds?: string[],
+): string[] {
+  if (rootIds !== undefined) {
+    return rootIds;
+  }
+  if (graph.project.roots.length > 0) {
+    return graph.project.roots.map((root) => root.id);
+  }
+  return [...new Set(graph.nodes.map((node) => node.rootId))];
+}
+
+function assertSelectedRootsAnalyzed(
+  graph: KnowledgeGraph,
+  rootIds: string[],
+): void {
+  for (const rootId of rootIds) {
+    const hasNodes = graph.nodes.some((node) => node.rootId === rootId);
+    if (!hasNodes) {
+      throw new Error(
+        `Root "${rootId}" is not analyzed (zero nodes in graph); run analyze first`,
+      );
+    }
+  }
+}
+
+function buildGitCommitHashes(
+  graph: KnowledgeGraph,
+  rootIds: string[],
+): Record<string, string | null> {
+  const byId = new Map(
+    graph.project.roots.map((root) => [root.id, root.gitCommitHash] as const),
+  );
+  const hashes: Record<string, string | null> = {};
+  for (const rootId of rootIds) {
+    hashes[rootId] = byId.get(rootId) ?? null;
+  }
+  return hashes;
+}
+
+function rollupGitCommitHash(
+  hashes: Record<string, string | null>,
+): string | null {
+  const values = Object.values(hashes);
+  if (values.length === 0) return null;
+  const first = values[0] ?? null;
+  return values.every((value) => value === first) ? first : null;
+}
+
 async function resolveNewWorkflowId(
   projectRoot: string,
   baseId: string,
@@ -69,20 +121,29 @@ async function resolveNewWorkflowId(
 }
 
 export async function generateDraft(
-  projectRoot: string,
+  workspaceRoot: string,
   goal: string | null,
   runner: GenerateWorkflowRunner,
+  opts?: { rootIds?: string[] },
 ): Promise<WorkflowDraft> {
-  acquireProjectLock(projectRoot, "generate");
+  acquireProjectLock(workspaceRoot, "generate");
   try {
-    const graph = await readGraph(projectRoot);
+    const graph = await readGraph(workspaceRoot);
     if (!graph) {
       throw new Error("No knowledge graph found; run analyze first");
     }
 
+    const selectedRootIds = resolveSelectedRootIds(graph, opts?.rootIds);
+    if (opts?.rootIds !== undefined) {
+      if (selectedRootIds.length === 0) {
+        throw new Error("No roots selected; roots not analyzed");
+      }
+      assertSelectedRootsAnalyzed(graph, selectedRootIds);
+    }
+
     const effectiveGoal = resolveEffectiveGoal(goal);
     const summaryMarkdown = summaryToMarkdown(summarizeGraph(graph));
-    const curatedMarkdown = curatedSubgraphMarkdown(graph);
+    const curatedMarkdown = curatedSubgraphMarkdown(graph, undefined, opts?.rootIds);
 
     const raw = await runner({
       summaryMarkdown,
@@ -90,9 +151,27 @@ export async function generateDraft(
       goal: effectiveGoal,
     });
 
-    return assertValidDraft(raw);
+    const gitCommitHashes = buildGitCommitHashes(graph, selectedRootIds);
+    const base =
+      raw && typeof raw === "object"
+        ? (raw as Record<string, unknown>)
+        : {};
+    const baseMeta =
+      base.meta && typeof base.meta === "object"
+        ? (base.meta as Record<string, unknown>)
+        : {};
+
+    return assertValidDraft({
+      ...base,
+      meta: {
+        ...baseMeta,
+        rootIds: selectedRootIds,
+        gitCommitHashes,
+        gitCommitHash: rollupGitCommitHash(gitCommitHashes),
+      },
+    });
   } finally {
-    releaseProjectLock(projectRoot, "generate");
+    releaseProjectLock(workspaceRoot, "generate");
   }
 }
 
@@ -145,6 +224,14 @@ async function applyDraftUnlocked(
   preferredId?: string,
 ): Promise<{ workflowId: string }> {
   const validated = assertValidDraft(draft);
+  const roots = await resolveRoots(projectRoot);
+  const knownRootIds = new Set(roots.map((root) => root.id));
+  for (const step of validated.workflow.steps) {
+    if (step.rootId !== undefined && !knownRootIds.has(step.rootId)) {
+      throw new Error(`Unknown rootId on step "${step.id}": ${step.rootId}`);
+    }
+  }
+
   const baseId =
     (preferredId?.trim() ||
       validated.workflow.id?.trim() ||

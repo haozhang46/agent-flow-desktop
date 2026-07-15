@@ -87,6 +87,7 @@ export type WorkflowDraft = {
       outputs: string[];
       prompt_template?: string;
       gate?: string;
+      rootId?: string;
     }[];
     edges: { from: string; to: string }[];
   };
@@ -96,6 +97,8 @@ export type WorkflowDraft = {
     source: "ua-graph";
     analyzedAt: string | null;
     gitCommitHash: string | null;
+    gitCommitHashes: Record<string, string | null>;
+    rootIds: string[];
     goal: string | null;
   };
 };

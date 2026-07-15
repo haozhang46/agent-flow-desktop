@@ -37,6 +37,8 @@ const draft: WorkflowDraft = {
     source: "ua-graph",
     analyzedAt: "2026-07-15T00:00:00.000Z",
     gitCommitHash: null,
+    gitCommitHashes: { main: null },
+    rootIds: ["main"],
     goal: "ship feature",
   },
 };

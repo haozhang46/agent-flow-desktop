@@ -27,6 +27,7 @@ import {
 } from "./stateFile";
 import type { WorkflowDefinition } from "./types";
 import { normalizeStep } from "./types";
+import { resolveStepCwd } from "../workspace/stepCwd";
 
 export class StepRunner {
   private state: WorkflowRunState;
@@ -169,8 +170,12 @@ export class StepRunner {
         : step.title;
 
       const executor = getExecutor(step.executor);
+      const executorWorkspaceRoot = await resolveStepCwd(
+        this.projectRoot,
+        step.rootId,
+      );
       const ctx = {
-        workspaceRoot: this.projectRoot,
+        workspaceRoot: executorWorkspaceRoot,
         stepId,
         systemPrompt,
         userPrompt,

@@ -74,6 +74,8 @@ function makeDraft(overrides?: Partial<WorkflowDraft>): WorkflowDraft {
       source: "ua-graph",
       analyzedAt: "2026-07-15T00:00:00.000Z",
       gitCommitHash: null,
+      gitCommitHashes: {},
+      rootIds: ["main"],
       goal: "Ship a demo",
     },
   };
@@ -151,6 +153,8 @@ describe("generateDraft", () => {
           source: "ua-graph",
           analyzedAt: "2026-07-15T00:00:00.000Z",
           gitCommitHash: null,
+          gitCommitHashes: {},
+          rootIds: ["main"],
           goal: input.goal,
         },
       });
@@ -172,6 +176,8 @@ describe("generateDraft", () => {
           source: "ua-graph",
           analyzedAt: "2026-07-15T00:00:00.000Z",
           gitCommitHash: null,
+          gitCommitHashes: {},
+          rootIds: ["main"],
           goal,
         },
       });
@@ -190,6 +196,8 @@ describe("generateDraft", () => {
         source: "ua-graph",
         analyzedAt: null,
         gitCommitHash: null,
+        gitCommitHashes: {},
+        rootIds: [],
         goal: null,
       },
     });
@@ -207,6 +215,76 @@ describe("generateDraft", () => {
     } finally {
       releaseProjectLock(tmp, "analyze");
     }
+  });
+
+  it("fails when a selected rootId has zero nodes", async () => {
+    const graph = await loadFixture();
+    await writeGraph(tmp, {
+      ...graph,
+      project: {
+        ...graph.project,
+        roots: [
+          ...graph.project.roots,
+          { id: "api", label: "API", path: "api", gitCommitHash: "deadbeef" },
+        ],
+      },
+    });
+    const runner: GenerateWorkflowRunner = async () => makeDraft();
+    await expect(
+      generateDraft(tmp, "goal", runner, { rootIds: ["api"] }),
+    ).rejects.toThrow(/not analyzed/i);
+  });
+
+  it("curates only selected roots and records meta rootIds + hashes", async () => {
+    const graph = await loadFixture();
+    await writeGraph(tmp, {
+      ...graph,
+      project: {
+        ...graph.project,
+        roots: [
+          { id: "main", label: "Main", path: ".", gitCommitHash: "aaa111" },
+          { id: "api", label: "API", path: "api", gitCommitHash: "bbb222" },
+        ],
+      },
+      nodes: [
+        ...graph.nodes,
+        {
+          id: "root:api/file:server.ts",
+          type: "file",
+          name: "server.ts",
+          filePath: "server.ts",
+          summary: "API entry",
+          tags: [],
+          complexity: "low",
+          rootId: "api",
+        },
+      ],
+    });
+
+    let curated: string | null = null;
+    const runner: GenerateWorkflowRunner = async (input) => {
+      curated = input.curatedMarkdown;
+      return makeDraft({
+        meta: {
+          source: "ua-graph",
+          analyzedAt: graph.project.analyzedAt,
+          gitCommitHash: null,
+          gitCommitHashes: {},
+          rootIds: [],
+          goal: input.goal,
+        },
+      });
+    };
+
+    const draft = await generateDraft(tmp, "Ship", runner, {
+      rootIds: ["main"],
+    });
+
+    expect(curated).toContain("file:src/main.ts");
+    expect(curated).not.toContain("root:api/file:server.ts");
+    expect(draft.meta.rootIds).toEqual(["main"]);
+    expect(draft.meta.gitCommitHashes).toEqual({ main: "aaa111" });
+    expect(draft.meta.gitCommitHash).toBe("aaa111");
   });
 });
 
@@ -322,6 +400,38 @@ describe("applyDraft", () => {
       },
     });
     await expect(applyDraft(tmp, draft)).rejects.toThrow(/Invalid workspace stepId/i);
+  });
+
+  it("rejects unknown step rootId against workspace roots", async () => {
+    const draft = makeDraft({
+      workflow: {
+        ...makeWorkflow(),
+        steps: [
+          {
+            id: "plan",
+            title: "Plan",
+            executor: "deepseek",
+            skills: [],
+            prompt_template: "prompts/plan.md",
+            outputs: ["docs/plan.md"],
+            gates: [],
+            requires_resources: [],
+            rootId: "ghost-root",
+          },
+          {
+            id: "build",
+            title: "Build",
+            executor: "claude-code",
+            skills: [],
+            prompt_template: "prompts/build.md",
+            outputs: ["src/"],
+            gates: [],
+            requires_resources: [],
+          },
+        ],
+      },
+    });
+    await expect(applyDraft(tmp, draft)).rejects.toThrow(/rootId|unknown root/i);
   });
 });
 

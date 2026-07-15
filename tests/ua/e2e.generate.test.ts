@@ -74,6 +74,8 @@ function makeDraft(overrides?: Partial<WorkflowDraft>): WorkflowDraft {
       source: "ua-graph",
       analyzedAt: "2026-07-15T00:00:00.000Z",
       gitCommitHash: null,
+      gitCommitHashes: { main: null },
+      rootIds: ["main"],
       goal: GREENFIELD_DEFAULT_GOAL,
     },
   };
@@ -104,6 +106,8 @@ describe("UA analyze → generate → apply (e2e)", () => {
             source: "ua-graph",
             analyzedAt: fixture.project.analyzedAt,
             gitCommitHash: null,
+            gitCommitHashes: { main: null },
+            rootIds: ["main"],
             goal,
           },
         });
