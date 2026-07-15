@@ -4,11 +4,14 @@ import { useUa } from "../../composables/useUa";
 import type {
   AnalyzeProgress,
   GraphSummary,
+  KnowledgeGraph,
   UaStatus,
   WorkflowDraft,
 } from "../../types/ua";
 import GoalField from "./GoalField.vue";
+import GraphExplorerView from "./GraphExplorerView.vue";
 import GraphSummaryView from "./GraphSummaryView.vue";
+import WorkflowDraftReview from "./WorkflowDraftReview.vue";
 
 const props = defineProps<{
   show: boolean;
@@ -22,6 +25,7 @@ const emit = defineEmits<{
 
 const {
   fetchStatus,
+  fetchGraph,
   startAnalyze,
   cancelAnalyze,
   pollProgress,
@@ -33,11 +37,12 @@ const status = ref<UaStatus | null>(null);
 const progress = ref<AnalyzeProgress | null>(null);
 const goal = ref("");
 const draft = ref<WorkflowDraft | null>(null);
+const graph = ref<KnowledgeGraph | null>(null);
 const error = ref<string | null>(null);
 const loading = ref(false);
 const generating = ref(false);
 const applying = ref(false);
-const showExplorerStub = ref(false);
+const showExplorer = ref(false);
 
 let pollTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -83,7 +88,8 @@ function startPolling(): void {
 async function load(): Promise<void> {
   loading.value = true;
   error.value = null;
-  showExplorerStub.value = false;
+  showExplorer.value = false;
+  graph.value = null;
   try {
     await refreshStatus();
     if (status.value?.busy) {
@@ -140,12 +146,13 @@ async function onGenerate(): Promise<void> {
   }
 }
 
-async function onApply(): Promise<void> {
+async function onConfirmDraft(): Promise<void> {
   if (!draft.value) return;
   error.value = null;
   applying.value = true;
   try {
     const res = await applyWorkflow(draft.value, { activate: true });
+    draft.value = null;
     emit("applied", res.workflowId);
   } catch (err) {
     error.value = err instanceof Error ? err.message : String(err);
@@ -154,9 +161,24 @@ async function onApply(): Promise<void> {
   }
 }
 
-function onPreview(): void {
-  showExplorerStub.value = true;
+function onCancelDraft(): void {
+  draft.value = null;
+}
+
+async function onRegenerateDraft(): Promise<void> {
+  await onGenerate();
+}
+
+async function onPreview(): Promise<void> {
+  error.value = null;
   emit("open-preview");
+  try {
+    graph.value = await fetchGraph();
+    showExplorer.value = true;
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : String(err);
+    showExplorer.value = false;
+  }
 }
 
 function onClose(): void {
@@ -189,7 +211,7 @@ onUnmounted(() => {
     @click.self="onClose"
   >
     <div
-      class="bg-white rounded-lg shadow-lg w-[28rem] max-h-[80vh] flex flex-col"
+      class="bg-white rounded-lg shadow-lg w-[36rem] max-h-[85vh] flex flex-col"
       data-testid="ua-project-understand-panel"
     >
       <div class="flex items-center justify-between px-4 py-3 border-b border-gray-200">
@@ -250,37 +272,20 @@ onUnmounted(() => {
           No knowledge graph yet. Run Analyze to build one from this project.
         </p>
 
-        <div
-          v-if="showExplorerStub"
-          class="text-xs text-amber-800 bg-amber-50 border border-amber-100 rounded px-3 py-2"
-          data-testid="ua-explorer-stub"
-        >
-          Graph explorer coming in Task 9. Summary above is available now.
-        </div>
+        <GraphExplorerView
+          v-if="showExplorer && graph"
+          :graph="graph"
+        />
 
         <GoalField v-model="goal" />
 
-        <div
+        <WorkflowDraftReview
           v-if="draft"
-          class="text-xs border border-gray-100 rounded px-3 py-2 space-y-1"
-          data-testid="ua-draft-stub"
-        >
-          <p class="font-medium text-gray-800">
-            Draft ready: {{ draft.workflow.title }}
-          </p>
-          <p class="text-gray-500">
-            {{ draft.workflow.steps.length }} steps — full review UI in Task 9.
-          </p>
-          <button
-            type="button"
-            class="text-blue-600 hover:underline"
-            data-testid="ua-apply-draft"
-            :disabled="applying"
-            @click="onApply"
-          >
-            {{ applying ? "Applying…" : "Apply draft" }}
-          </button>
-        </div>
+          :draft="draft"
+          @confirm="onConfirmDraft"
+          @cancel="onCancelDraft"
+          @regenerate="onRegenerateDraft"
+        />
       </div>
 
       <div

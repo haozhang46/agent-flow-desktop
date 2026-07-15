@@ -2,7 +2,12 @@
 import { flushPromises, mount } from "@vue/test-utils";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import ProjectUnderstandPanel from "../../src/components/ua/ProjectUnderstandPanel.vue";
-import type { GraphSummary, UaStatus, WorkflowDraft } from "../../src/types/ua";
+import type {
+  GraphSummary,
+  KnowledgeGraph,
+  UaStatus,
+  WorkflowDraft,
+} from "../../src/types/ua";
 
 const sampleSummary: GraphSummary = {
   projectName: "fixture-app",
@@ -63,18 +68,51 @@ const draft: WorkflowDraft = {
   },
 };
 
+const sampleGraph: KnowledgeGraph = {
+  project: {
+    name: "fixture-app",
+    description: "Minimal UA graph for tests",
+    languages: ["typescript"],
+    frameworks: ["vue"],
+    analyzedAt: "2026-07-15T00:00:00.000Z",
+    gitCommitHash: null,
+  },
+  nodes: [
+    {
+      id: "file:src/main.ts",
+      type: "file",
+      name: "main.ts",
+      filePath: "src/main.ts",
+      summary: "App entry",
+      tags: ["entry"],
+      complexity: "low",
+    },
+  ],
+  edges: [],
+  layers: [
+    {
+      id: "layer:ui",
+      name: "UI",
+      description: "Frontend entry",
+      nodeIds: ["file:src/main.ts"],
+    },
+  ],
+  tour: [],
+};
+
 const fetchStatus = vi.fn();
 const startAnalyze = vi.fn();
 const cancelAnalyze = vi.fn();
 const pollProgress = vi.fn();
 const generateWorkflow = vi.fn();
 const applyWorkflow = vi.fn();
+const fetchGraph = vi.fn();
 
 vi.mock("../../src/composables/useUa", () => ({
   useUa: () => ({
     fetchStatus,
     fetchSummary: vi.fn(),
-    fetchGraph: vi.fn(),
+    fetchGraph,
     startAnalyze,
     cancelAnalyze,
     pollProgress,
@@ -99,6 +137,7 @@ describe("ProjectUnderstandPanel", () => {
     pollProgress.mockResolvedValue(null);
     generateWorkflow.mockResolvedValue({ draft });
     applyWorkflow.mockResolvedValue({ workflowId: "ua-fixture" });
+    fetchGraph.mockResolvedValue(sampleGraph);
   });
 
   afterEach(() => {
@@ -190,7 +229,7 @@ describe("ProjectUnderstandPanel", () => {
     expect(pollProgress.mock.calls.length).toBeGreaterThanOrEqual(2);
   });
 
-  it("generate stores draft in panel state", async () => {
+  it("generate shows draft review and confirm applies workflow", async () => {
     fetchStatus.mockResolvedValue(readyStatus);
     const wrapper = mount(ProjectUnderstandPanel, { props: { show: true } });
     await settle();
@@ -200,19 +239,50 @@ describe("ProjectUnderstandPanel", () => {
     await settle();
 
     expect(generateWorkflow).toHaveBeenCalledWith("build CI");
-    expect(wrapper.find('[data-testid="ua-draft-stub"]').text()).toContain(
-      "Fixture Workflow",
-    );
+    expect(wrapper.find('[data-testid="ua-draft-review"]').exists()).toBe(true);
+    expect(wrapper.text()).toContain("Fixture Workflow");
+
+    await wrapper.get('[data-testid="ua-draft-confirm"]').trigger("click");
+    await settle();
+
+    expect(applyWorkflow).toHaveBeenCalledWith(draft, { activate: true });
+    expect(wrapper.emitted("applied")).toEqual([["ua-fixture"]]);
   });
 
-  it("preview emits open-preview and shows explorer stub", async () => {
+  it("draft cancel clears review; regenerate calls generate again", async () => {
+    fetchStatus.mockResolvedValue(readyStatus);
+    const wrapper = mount(ProjectUnderstandPanel, { props: { show: true } });
+    await settle();
+
+    await wrapper.get('[data-testid="ua-generate"]').trigger("click");
+    await settle();
+    expect(wrapper.find('[data-testid="ua-draft-review"]').exists()).toBe(true);
+
+    await wrapper.get('[data-testid="ua-draft-cancel"]').trigger("click");
+    await settle();
+    expect(wrapper.find('[data-testid="ua-draft-review"]').exists()).toBe(false);
+
+    await wrapper.get('[data-testid="ua-generate"]').trigger("click");
+    await settle();
+    await wrapper.get('[data-testid="ua-draft-regenerate"]').trigger("click");
+    await settle();
+
+    expect(generateWorkflow.mock.calls.length).toBeGreaterThanOrEqual(2);
+    expect(wrapper.find('[data-testid="ua-draft-review"]').exists()).toBe(true);
+  });
+
+  it("preview fetches graph and shows explorer", async () => {
     fetchStatus.mockResolvedValue(readyStatus);
     const wrapper = mount(ProjectUnderstandPanel, { props: { show: true } });
     await settle();
 
     await wrapper.get('[data-testid="ua-preview"]').trigger("click");
+    await settle();
+
     expect(wrapper.emitted("open-preview")).toBeTruthy();
-    expect(wrapper.find('[data-testid="ua-explorer-stub"]').exists()).toBe(true);
+    expect(fetchGraph).toHaveBeenCalled();
+    expect(wrapper.find('[data-testid="ua-graph-explorer"]').exists()).toBe(true);
+    expect(wrapper.text()).toContain("main.ts");
   });
 
   it("emits close from close button", async () => {
