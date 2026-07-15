@@ -23,6 +23,7 @@ import WorkspaceApprovalCard from "../components/workflow/WorkspaceApprovalCard.
 import AgentflowFileApprovalCard from "../components/workflow/AgentflowFileApprovalCard.vue";
 import WorkflowSidebar from "../components/workflow/WorkflowSidebar.vue";
 import WorkflowTemplatePicker from "../components/workflow/WorkflowTemplatePicker.vue";
+import ProjectUnderstandPanel from "../components/ua/ProjectUnderstandPanel.vue";
 import { getLegacyWorkspace } from "../workspace/legacyWorkspaces";
 import WorkflowPanelRenderer from "../workspace/WorkflowPanelRenderer.vue";
 import type { ChatFileAttachment, RuleFileEntry, ArchitecturePlanWidgetType } from "../workspace/registryComponents";
@@ -72,6 +73,7 @@ const workflows = ref<WorkflowSummary[]>([]);
 const selectedWorkflowId = ref<string | null>(null);
 const activeWorkflowId = ref<string | null>(null);
 const showTemplatePicker = ref(false);
+const showUaPanel = ref(false);
 const showConfigDrawer = ref(false);
 const showWorkspaceDesigner = ref(false);
 const configWorkflowId = ref<string | null>(null);
@@ -568,6 +570,23 @@ async function openTemplatePicker() {
   }
 }
 
+function openUaPanel() {
+  showUaPanel.value = true;
+}
+
+async function onUaWorkflowApplied(workflowId: string) {
+  showUaPanel.value = false;
+  try {
+    const list = await fetchWorkflowList();
+    workflows.value = list.workflows;
+    activeWorkflowId.value = list.activeWorkflowId;
+    selectedWorkflowId.value = workflowId;
+    await loadSelectedWorkflow();
+  } catch (err) {
+    actionError.value = err instanceof Error ? err.message : String(err);
+  }
+}
+
 async function onTemplateSelect(templateId: string) {
   showTemplatePicker.value = false;
   try {
@@ -933,6 +952,7 @@ async function onFreeSend(payload: ChatSendPayload) {
           @design-workspace="openWorkspaceDesigner"
           @select-step="selectStep"
           @add-workflow="openTemplatePicker"
+          @from-project="openUaPanel"
         />
 
         <ResizableSplitLayout
@@ -1066,6 +1086,12 @@ async function onFreeSend(payload: ChatSendPayload) {
         :loading="templatesLoading"
         @close="showTemplatePicker = false"
         @select="onTemplateSelect"
+      />
+
+      <ProjectUnderstandPanel
+        :show="showUaPanel"
+        @close="showUaPanel = false"
+        @applied="onUaWorkflowApplied"
       />
 
       <WorkflowConfigDrawer

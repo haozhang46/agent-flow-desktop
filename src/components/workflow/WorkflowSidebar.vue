@@ -21,6 +21,7 @@ const emit = defineEmits<{
   "design-workspace": [];
   "select-step": [stepId: string];
   "add-workflow": [];
+  "from-project": [];
 }>();
 
 const statusLabel: Record<StepStatus, string> = {
@@ -46,14 +47,25 @@ const statusClass: Record<StepStatus, string> = {
   <aside class="w-52 border-r border-gray-200 bg-gray-50 flex flex-col shrink-0">
     <div class="p-3 border-b border-gray-200 flex items-center justify-between gap-2">
       <p class="text-xs font-medium text-gray-500 uppercase tracking-wide">Workflows</p>
-      <button
-        type="button"
-        class="text-xs text-blue-600 hover:underline"
-        title="Add from template"
-        @click="emit('add-workflow')"
-      >
-        +
-      </button>
+      <div class="flex items-center gap-2 shrink-0">
+        <button
+          type="button"
+          class="text-[10px] text-blue-600 hover:underline"
+          title="Generate from project understanding"
+          data-testid="from-project"
+          @click="emit('from-project')"
+        >
+          From project…
+        </button>
+        <button
+          type="button"
+          class="text-xs text-blue-600 hover:underline"
+          title="Add from template"
+          @click="emit('add-workflow')"
+        >
+          +
+        </button>
+      </div>
     </div>
 
     <div class="max-h-40 overflow-y-auto border-b border-gray-200">
