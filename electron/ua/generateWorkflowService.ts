@@ -96,6 +96,36 @@ export async function generateDraft(
   }
 }
 
+function assertSafeRelativePath(relPath: string, label: string): void {
+  if (path.isAbsolute(relPath)) {
+    throw new Error(`${label} must not be an absolute path: ${relPath}`);
+  }
+  const normalized = path.normalize(relPath);
+  if (normalized.startsWith("..") || path.isAbsolute(normalized)) {
+    throw new Error(`${label} must not contain "..": ${relPath}`);
+  }
+}
+
+function assertSafeStepId(stepId: string): void {
+  if (
+    stepId.includes("..") ||
+    stepId.includes("/") ||
+    stepId.includes("\\")
+  ) {
+    throw new Error(`Invalid workspace stepId: ${stepId}`);
+  }
+}
+
+function resolveUnderWorkflowRoot(root: string, relPath: string): string {
+  assertSafeRelativePath(relPath, "Prompt path");
+  const dest = path.resolve(root, relPath);
+  const relative = path.relative(root, dest);
+  if (relative.startsWith("..") || path.isAbsolute(relative)) {
+    throw new Error(`Path escapes workflow root: ${relPath}`);
+  }
+  return dest;
+}
+
 export async function applyDraft(
   projectRoot: string,
   draft: WorkflowDraft,
@@ -112,8 +142,22 @@ export async function applyDraft(
   const root = path.join(projectRoot, ".agentflow/workflows", workflowId);
   await fs.mkdir(path.join(root, "prompts"), { recursive: true });
 
-  for (const [relPath, body] of Object.entries(validated.prompts)) {
-    const dest = path.join(root, relPath);
+  const allowedPromptPaths = new Set(
+    validated.workflow.steps.map((step) => step.prompt_template),
+  );
+
+  for (const relPath of Object.keys(validated.prompts)) {
+    assertSafeRelativePath(relPath, "Prompt path");
+    if (!allowedPromptPaths.has(relPath)) {
+      throw new Error(
+        `Unexpected prompt path not referenced by any step: ${relPath}`,
+      );
+    }
+  }
+
+  for (const relPath of allowedPromptPaths) {
+    const body = validated.prompts[relPath];
+    const dest = resolveUnderWorkflowRoot(root, relPath);
     await fs.mkdir(path.dirname(dest), { recursive: true });
     await fs.writeFile(dest, body, "utf8");
   }
@@ -129,6 +173,7 @@ export async function applyDraft(
     const wsDir = path.join(root, "workspaces");
     await fs.mkdir(wsDir, { recursive: true });
     for (const [stepId, config] of Object.entries(validated.workspaces)) {
+      assertSafeStepId(stepId);
       await fs.writeFile(
         path.join(wsDir, `${stepId}.workspace.json`),
         JSON.stringify(config, null, 2),

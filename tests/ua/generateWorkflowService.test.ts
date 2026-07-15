@@ -269,6 +269,60 @@ describe("applyDraft", () => {
     const { workflowId } = await applyDraft(tmp, draft);
     expect(workflowId).toBe("ua-generated");
   });
+
+  it("rejects prompt map keys with path traversal", async () => {
+    const draft = makeDraft({
+      prompts: {
+        "prompts/plan.md": "# Plan",
+        "prompts/build.md": "# Build",
+        "../evil.md": "evil",
+      },
+    });
+    await expect(applyDraft(tmp, draft)).rejects.toThrow(/\.\./i);
+
+    const evilPath = path.join(tmp, "evil.md");
+    await expect(fs.access(evilPath)).rejects.toThrow();
+  });
+
+  it("rejects absolute prompt paths in prompts map", async () => {
+    const draft = makeDraft({
+      prompts: {
+        "prompts/plan.md": "# Plan",
+        "prompts/build.md": "# Build",
+        "/etc/passwd": "evil",
+      },
+    });
+    await expect(applyDraft(tmp, draft)).rejects.toThrow(/absolute path/i);
+  });
+
+  it("rejects unexpected prompt paths not referenced by steps", async () => {
+    const draft = makeDraft({
+      prompts: {
+        "prompts/plan.md": "# Plan",
+        "prompts/build.md": "# Build",
+        "prompts/extra.md": "extra",
+      },
+    });
+    await expect(applyDraft(tmp, draft)).rejects.toThrow(/Unexpected prompt path/i);
+  });
+
+  it("rejects workspace stepIds with path traversal", async () => {
+    const draft = makeDraft({
+      workspaces: {
+        "../evil": { widgets: [] },
+      },
+    });
+    await expect(applyDraft(tmp, draft)).rejects.toThrow(/Invalid workspace stepId/i);
+  });
+
+  it("rejects workspace stepIds containing path separators", async () => {
+    const draft = makeDraft({
+      workspaces: {
+        "plan/evil": { widgets: [] },
+      },
+    });
+    await expect(applyDraft(tmp, draft)).rejects.toThrow(/Invalid workspace stepId/i);
+  });
 });
 
 describe("analyze vs generate mutual exclusion", () => {
