@@ -35,11 +35,15 @@ export function useUa() {
 
   async function startAnalyze(options?: {
     forceFull?: boolean;
+    rootIds?: string[];
   }): Promise<{ started: boolean }> {
     return apiJson("/v1/ua/analyze", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ forceFull: options?.forceFull === true }),
+      body: JSON.stringify({
+        forceFull: options?.forceFull === true,
+        ...(options?.rootIds !== undefined ? { rootIds: options.rootIds } : {}),
+      }),
     });
   }
 
@@ -59,11 +63,15 @@ export function useUa() {
 
   async function generateWorkflow(
     goal?: string | null,
+    options?: { rootIds?: string[] },
   ): Promise<{ draft: WorkflowDraft }> {
     return apiJson("/v1/ua/generate-workflow", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ goal: goal?.trim() ? goal.trim() : undefined }),
+      body: JSON.stringify({
+        goal: goal?.trim() ? goal.trim() : undefined,
+        ...(options?.rootIds !== undefined ? { rootIds: options.rootIds } : {}),
+      }),
     });
   }
 

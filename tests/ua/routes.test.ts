@@ -193,12 +193,16 @@ describe("UA HTTP routes /v1/ua/*", () => {
       busyKind: string | null;
       summary: unknown;
       analyzedAt: string | null;
+      roots: { id: string; label: string; path: string }[];
     };
     expect(body.hasGraph).toBe(false);
     expect(body.busy).toBe(false);
     expect(body.busyKind).toBeNull();
     expect(body.summary).toBeNull();
     expect(body.analyzedAt).toBeNull();
+    expect(body.roots).toEqual([
+      { id: "main", path: ".", label: path.basename(tmp) },
+    ]);
   });
 
   it("GET /v1/ua/graph and /summary return 404 without graph", async () => {
@@ -240,6 +244,31 @@ describe("UA HTTP routes /v1/ua/*", () => {
     apiKey = null;
     const res = await request(port, "POST", "/v1/ua/analyze", "{}");
     expect(res.status).toBe(401);
+  });
+
+  it("POST /v1/ua/analyze accepts rootIds in body", async () => {
+    let receivedRootIds: string[] | undefined;
+    setUaRunnersForTests({
+      analyzeRunner: async ({ selectedRootIds, onProgress }) => {
+        receivedRootIds = selectedRootIds;
+        onProgress({ phase: "extract", message: "stub" });
+        return loadFixture();
+      },
+    });
+
+    const start = await request(
+      port,
+      "POST",
+      "/v1/ua/analyze",
+      JSON.stringify({ rootIds: ["main"], forceFull: true }),
+    );
+    expect(start.status).toBe(202);
+
+    await waitFor(async () => {
+      const status = await request(port, "GET", "/v1/ua/status");
+      return JSON.parse(status.body).busy === false && JSON.parse(status.body).hasGraph;
+    });
+    expect(receivedRootIds).toEqual(["main"]);
   });
 
   it("POST /v1/ua/analyze starts and reports progress", async () => {
@@ -353,12 +382,13 @@ describe("UA HTTP routes /v1/ua/*", () => {
       port,
       "POST",
       "/v1/ua/generate-workflow",
-      JSON.stringify({ goal: "Ship faster" }),
+      JSON.stringify({ goal: "Ship faster", rootIds: ["main"] }),
     );
     expect(res.status).toBe(200);
     const body = JSON.parse(res.body) as { draft: WorkflowDraft };
     expect(body.draft.workflow.steps.length).toBeGreaterThan(0);
     expect(body.draft.meta.goal).toBe("Ship faster");
+    expect(body.draft.meta.rootIds).toEqual(["main"]);
   });
 
   it("POST /v1/ua/generate-workflow returns 401 without API key", async () => {

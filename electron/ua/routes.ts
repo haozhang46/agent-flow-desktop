@@ -13,6 +13,7 @@ import {
 } from "./runtime";
 import { summarizeGraph } from "./summarize";
 import { setActiveWorkflowId } from "../workflow/loader";
+import { loadWorkspace, resolveRoots } from "../workspace/store";
 
 function readBody(req: http.IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -83,12 +84,16 @@ export async function handleUaRoutes(
       const graph = await readGraph(projectRoot);
       const busyKind = getUaBusyKind(projectRoot);
       const summary = graph ? summarizeGraph(graph) : null;
+      const workspace = await loadWorkspace(projectRoot);
+      const resolved = await resolveRoots(projectRoot, workspace);
+      const roots = resolved.map(({ id, label, path }) => ({ id, label, path }));
       jsonResponse(res, 200, {
         hasGraph: graph !== null,
         busy: busyKind !== null,
         busyKind,
         summary,
         analyzedAt: graph?.project.analyzedAt ?? null,
+        roots,
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -142,21 +147,28 @@ export async function handleUaRoutes(
       return true;
     }
 
-    let payload: { forceFull?: boolean } = {};
+    let payload: { forceFull?: boolean; rootIds?: string[] } = {};
     try {
       const raw = await readBody(req);
       if (raw.trim()) {
-        payload = JSON.parse(raw) as { forceFull?: boolean };
+        payload = JSON.parse(raw) as { forceFull?: boolean; rootIds?: string[] };
       }
     } catch {
       jsonResponse(res, 400, { detail: "invalid JSON" });
       return true;
     }
 
+    const rootIds = Array.isArray(payload.rootIds)
+      ? payload.rootIds.filter((id): id is string => typeof id === "string")
+      : undefined;
+
     try {
       void startUaAnalyze(
         projectRoot,
-        { forceFull: payload.forceFull === true },
+        {
+          forceFull: payload.forceFull === true,
+          ...(rootIds !== undefined ? { rootIds } : {}),
+        },
         getApiKey,
       ).catch(() => {
         // Errors are surfaced via status/progress; graph is preserved on failure.
@@ -210,16 +222,20 @@ export async function handleUaRoutes(
       return true;
     }
 
-    let payload: { goal?: string } = {};
+    let payload: { goal?: string; rootIds?: string[] } = {};
     try {
       const raw = await readBody(req);
       if (raw.trim()) {
-        payload = JSON.parse(raw) as { goal?: string };
+        payload = JSON.parse(raw) as { goal?: string; rootIds?: string[] };
       }
     } catch {
       jsonResponse(res, 400, { detail: "invalid JSON" });
       return true;
     }
+
+    const rootIds = Array.isArray(payload.rootIds)
+      ? payload.rootIds.filter((id): id is string => typeof id === "string")
+      : undefined;
 
     try {
       const goal =
@@ -228,6 +244,7 @@ export async function handleUaRoutes(
         projectRoot,
         goal,
         getGenerateRunner(getApiKey),
+        rootIds !== undefined ? { rootIds } : undefined,
       );
       jsonResponse(res, 200, { draft });
     } catch (err) {
@@ -242,6 +259,10 @@ export async function handleUaRoutes(
       }
       if (/no knowledge graph/i.test(message)) {
         jsonResponse(res, 404, { detail: message });
+        return true;
+      }
+      if (/not analyzed|no roots selected/i.test(message)) {
+        jsonResponse(res, 400, { detail: message });
         return true;
       }
       jsonResponse(res, 500, { detail: message });

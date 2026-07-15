@@ -32,6 +32,7 @@ const idleStatus: UaStatus = {
   busyKind: null,
   summary: null,
   analyzedAt: null,
+  roots: [{ id: "main", label: "Main", path: "." }],
 };
 
 const readyStatus: UaStatus = {
@@ -40,6 +41,7 @@ const readyStatus: UaStatus = {
   busyKind: null,
   summary: sampleSummary,
   analyzedAt: sampleSummary.analyzedAt,
+  roots: [{ id: "main", label: "Main", path: "." }],
 };
 
 const draft: WorkflowDraft = {

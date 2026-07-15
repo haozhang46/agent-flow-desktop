@@ -74,6 +74,7 @@ const emptyUaStatus = {
   busyKind: null,
   summary: null,
   analyzedAt: null,
+  roots: [{ id: "main", label: "Main", path: "." }],
 };
 
 function mockUaStatusFetch(url: string) {

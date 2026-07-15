@@ -16,12 +16,19 @@ export type GraphSummary = {
   analyzedAt: string | null;
 };
 
+export type UaStatusRoot = {
+  id: string;
+  label: string;
+  path: string;
+};
+
 export type UaStatus = {
   hasGraph: boolean;
   busy: boolean;
   busyKind: "analyze" | "generate" | null;
   summary: GraphSummary | null;
   analyzedAt: string | null;
+  roots: UaStatusRoot[];
 };
 
 export type ProjectRootMeta = {

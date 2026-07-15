@@ -23,6 +23,7 @@ describe("useUa", () => {
       busyKind: null,
       summary: null,
       analyzedAt: "2026-07-15T00:00:00.000Z",
+      roots: [{ id: "main", label: "Main", path: "." }],
     };
     vi.stubGlobal(
       "fetch",
@@ -83,11 +84,13 @@ describe("useUa", () => {
     );
 
     const { startAnalyze } = useUa();
-    await expect(startAnalyze({ forceFull: true })).resolves.toEqual({
+    await expect(
+      startAnalyze({ forceFull: true, rootIds: ["main", "api"] }),
+    ).resolves.toEqual({
       started: true,
     });
     expect(method).toBe("POST");
-    expect(body).toEqual({ forceFull: true });
+    expect(body).toEqual({ forceFull: true, rootIds: ["main", "api"] });
   });
 
   it("cancelAnalyze POSTs cancel; pollProgress returns null on 204", async () => {
@@ -138,7 +141,7 @@ describe("useUa", () => {
       const body = JSON.parse(String(init?.body));
       if (url.endsWith("/v1/ua/generate-workflow")) {
         expect(init?.method).toBe("POST");
-        expect(body).toEqual({ goal: "ship it" });
+        expect(body).toEqual({ goal: "ship it", rootIds: ["main"] });
         return new Response(JSON.stringify({ draft }), { status: 200 });
       }
       if (url.endsWith("/v1/ua/apply-workflow")) {
@@ -150,7 +153,9 @@ describe("useUa", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     const { generateWorkflow, applyWorkflow } = useUa();
-    await expect(generateWorkflow("ship it")).resolves.toEqual({ draft });
+    await expect(generateWorkflow("ship it", { rootIds: ["main"] })).resolves.toEqual({
+      draft,
+    });
     await expect(applyWorkflow(draft as never, { activate: true })).resolves.toEqual({
       workflowId: "wf",
     });
