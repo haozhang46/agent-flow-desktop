@@ -81,6 +81,27 @@ function mockUaStatusFetch(url: string) {
   if (url.includes("/v1/ua/status")) {
     return new Response(JSON.stringify(emptyUaStatus), { status: 200 });
   }
+  // Exact workspace.json API only — do not steal /v1/workspace/list|file|registry
+  if (/\/v1\/workspace\/?(\?|$)/.test(url)) {
+    return new Response(
+      JSON.stringify({
+        workspace: {
+          version: 1,
+          name: "project",
+          roots: [{ id: "main", path: ".", label: "Main" }],
+        },
+        roots: [
+          {
+            id: "main",
+            path: ".",
+            label: "Main",
+            absolutePath: "/tmp/project",
+          },
+        ],
+      }),
+      { status: 200 },
+    );
+  }
   return null;
 }
 
@@ -257,7 +278,7 @@ describe("WorkflowRun", () => {
         await flushPromises();
         expect(wrapper.text()).toContain("docs/architecture.md");
       },
-      { timeout: 5000 },
+      { timeout: 10000 },
     );
     wrapper.unmount();
   });

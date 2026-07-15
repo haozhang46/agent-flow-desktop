@@ -2,11 +2,14 @@
 import { computed, onMounted, ref } from "vue";
 import { useTheme } from "../composables/useTheme";
 import { useWorkflow, type OpsConfig } from "../composables/useWorkflow";
+import { useWorkspace } from "../composables/useWorkspace";
+import type { WorkspaceRoot } from "../types/workspace";
 
 const emit = defineEmits<{ back: [] }>();
 
 const { theme, setTheme } = useTheme();
 const workflowApi = useWorkflow();
+const workspaceApi = useWorkspace();
 
 const apiKeyStatus = ref("");
 const apiKeyInput = ref("");
@@ -19,6 +22,14 @@ const langflowApiKeyInput = ref("");
 const langflowAutoStart = ref(true);
 const agentRecursionUnlimited = ref(true);
 const agentRecursionLimit = ref(200);
+
+const workspaceName = ref("");
+const workspaceRoots = ref<WorkspaceRoot[]>([]);
+const workspaceDefaults = ref<{ analyzeRootIds?: string[] } | undefined>();
+const workspaceLoading = ref(false);
+const workspaceSaving = ref(false);
+const workspaceError = ref<string | null>(null);
+const workspaceSaved = ref(false);
 
 onMounted(async () => {
   apiKeyStatus.value = await window.desktop.getApiKeyStatus();
@@ -41,7 +52,83 @@ onMounted(async () => {
       opsConfig.value = null;
     }
   }
+
+  await loadWorkspace();
 });
+
+async function loadWorkspace(): Promise<void> {
+  workspaceLoading.value = true;
+  workspaceError.value = null;
+  workspaceSaved.value = false;
+  try {
+    const res = await workspaceApi.fetchWorkspace();
+    workspaceName.value = res.workspace.name;
+    workspaceRoots.value = res.workspace.roots.map((r) => ({ ...r }));
+    workspaceDefaults.value = res.workspace.defaults;
+    if (workspaceRoots.value.length === 0) {
+      const label = workspacePath.value.split(/[/\\]/).filter(Boolean).pop() ?? "main";
+      workspaceRoots.value = [{ id: "main", path: ".", label }];
+    }
+  } catch (err) {
+    workspaceError.value = err instanceof Error ? err.message : String(err);
+    const label = workspacePath.value.split(/[/\\]/).filter(Boolean).pop() ?? "main";
+    workspaceName.value = label;
+    workspaceRoots.value = [{ id: "main", path: ".", label }];
+  } finally {
+    workspaceLoading.value = false;
+  }
+}
+
+function addRoot(): void {
+  workspaceRoots.value.push({ id: "", path: "", label: "" });
+  workspaceSaved.value = false;
+}
+
+function removeRoot(index: number): void {
+  workspaceRoots.value.splice(index, 1);
+  workspaceSaved.value = false;
+}
+
+async function saveWorkspaceRoots(): Promise<void> {
+  workspaceError.value = null;
+  workspaceSaved.value = false;
+  const roots = workspaceRoots.value.map((r) => ({
+    id: r.id.trim(),
+    path: r.path.trim(),
+    label: r.label.trim() || r.id.trim(),
+  }));
+  if (roots.length === 0) {
+    workspaceError.value = "Add at least one workspace root.";
+    return;
+  }
+  if (roots.some((r) => !r.id || !r.path)) {
+    workspaceError.value = "Each root needs an id and path.";
+    return;
+  }
+  const ids = new Set(roots.map((r) => r.id));
+  if (ids.size !== roots.length) {
+    workspaceError.value = "Root ids must be unique.";
+    return;
+  }
+
+  workspaceSaving.value = true;
+  try {
+    const res = await workspaceApi.saveWorkspace({
+      version: 1,
+      name: workspaceName.value.trim() || roots[0]!.id,
+      roots,
+      ...(workspaceDefaults.value ? { defaults: workspaceDefaults.value } : {}),
+    });
+    workspaceName.value = res.workspace.name;
+    workspaceRoots.value = res.workspace.roots.map((r) => ({ ...r }));
+    workspaceDefaults.value = res.workspace.defaults;
+    workspaceSaved.value = true;
+  } catch (err) {
+    workspaceError.value = err instanceof Error ? err.message : String(err);
+  } finally {
+    workspaceSaving.value = false;
+  }
+}
 
 async function saveApiKey() {
   await window.desktop.setApiKey(apiKeyInput.value);
@@ -130,6 +217,100 @@ async function saveAgentRecursionLimit() {
       </div>
     </section>
 
+    <section class="mb-8" data-testid="workspace-roots-section">
+      <h2 class="text-sm font-medium mb-2">Workspace roots</h2>
+      <p class="text-sm text-gray-500 mb-3">
+        Source folders analyzed by Understand Project. Paths are relative to the open workspace
+        folder or absolute.
+      </p>
+      <p v-if="workspaceLoading" class="text-sm text-gray-500 mb-3">Loading workspace…</p>
+      <p v-if="workspaceError" class="text-sm text-red-600 mb-3" data-testid="workspace-roots-error">
+        {{ workspaceError }}
+      </p>
+      <p
+        v-if="workspaceSaved"
+        class="text-sm text-green-600 mb-3"
+        data-testid="workspace-roots-saved"
+      >
+        Workspace saved.
+      </p>
+      <label class="block text-sm text-gray-600 mb-3">
+        <span class="mb-1 block">Workspace name</span>
+        <input
+          v-model="workspaceName"
+          type="text"
+          class="input-field w-full"
+          data-testid="workspace-name"
+          placeholder="my-platform"
+          @input="workspaceSaved = false"
+        />
+      </label>
+      <div class="space-y-3 mb-3">
+        <div
+          v-for="(root, index) in workspaceRoots"
+          :key="index"
+          class="border border-gray-200 dark:border-gray-600 rounded p-3 space-y-2"
+          data-testid="workspace-root-row"
+        >
+          <div class="flex items-center justify-between gap-2">
+            <span class="text-xs text-gray-500">Root {{ index + 1 }}</span>
+            <button
+              type="button"
+              class="text-xs text-red-600 hover:text-red-700 disabled:opacity-40"
+              data-testid="workspace-root-remove"
+              :disabled="workspaceRoots.length <= 1"
+              @click="removeRoot(index)"
+            >
+              Remove
+            </button>
+          </div>
+          <input
+            v-model="root.id"
+            type="text"
+            class="input-field w-full"
+            data-testid="workspace-root-id"
+            placeholder="id (e.g. web)"
+            @input="workspaceSaved = false"
+          />
+          <input
+            v-model="root.label"
+            type="text"
+            class="input-field w-full"
+            data-testid="workspace-root-label"
+            placeholder="label"
+            @input="workspaceSaved = false"
+          />
+          <input
+            v-model="root.path"
+            type="text"
+            class="input-field w-full"
+            data-testid="workspace-root-path"
+            placeholder="path (e.g. . or ../frontend)"
+            @input="workspaceSaved = false"
+          />
+        </div>
+      </div>
+      <div class="flex gap-2">
+        <button
+          type="button"
+          class="btn-primary bg-gray-500"
+          data-testid="workspace-root-add"
+          @click="addRoot"
+        >
+          Add root
+        </button>
+        <button
+          type="button"
+          class="btn-primary"
+          data-testid="workspace-roots-save"
+          :disabled="workspaceSaving || workspaceLoading"
+          @click="saveWorkspaceRoots"
+        >
+          {{ workspaceSaving ? "Saving…" : "Save workspace" }}
+        </button>
+      </div>
+    </section>
+
     <section class="mb-8">
       <h2 class="text-sm font-medium mb-2">DeepSeek API Key</h2>
       <p class="text-sm text-gray-500 mb-3">
@@ -165,7 +346,7 @@ async function saveAgentRecursionLimit() {
       <div v-if="resourceServerUrl.trim()" class="mt-4 space-y-2">
         <p class="text-xs text-gray-500">
           Ops panel URLs are configured on the Resource Server
-          (<code class="text-gray-600">RESOURCE_SERVER_PORTAINER_URL</code>,
+          <code class="text-gray-600">RESOURCE_SERVER_PORTAINER_URL</code>,
           <code class="text-gray-600">RESOURCE_SERVER_MESHERY_URL</code>).
         </p>
         <p v-if="opsConfig?.portainerUrl" class="text-sm">

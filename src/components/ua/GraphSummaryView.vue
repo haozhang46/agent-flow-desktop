@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import type { GraphSummary } from "../../types/ua";
+import type { GraphSummary, UaStatusRoot } from "../../types/ua";
 
 defineProps<{
   summary: GraphSummary;
+  roots?: UaStatusRoot[];
 }>();
 </script>
 
@@ -14,6 +15,20 @@ defineProps<{
       <p v-if="summary.analyzedAt" class="text-[10px] text-gray-400 mt-1">
         Analyzed {{ summary.analyzedAt }}
       </p>
+    </div>
+
+    <div
+      v-if="roots?.length"
+      class="flex flex-wrap gap-1.5"
+      data-testid="ua-summary-root-chips"
+    >
+      <span
+        v-for="root in roots"
+        :key="root.id"
+        class="text-[10px] px-1.5 py-0.5 rounded border border-gray-200 text-gray-600 bg-gray-50"
+      >
+        {{ root.label || root.id }}
+      </span>
     </div>
 
     <div class="flex flex-wrap gap-3 text-xs text-gray-600">

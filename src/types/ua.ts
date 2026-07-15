@@ -4,6 +4,7 @@ export type AnalyzeProgress = {
   phase: "scan" | "extract" | "relate" | "write";
   message: string;
   percent?: number;
+  rootId?: string;
 };
 
 export type GraphSummary = {

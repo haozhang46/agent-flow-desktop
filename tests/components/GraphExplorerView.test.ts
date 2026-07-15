@@ -12,6 +12,14 @@ const graph: KnowledgeGraph = {
     frameworks: ["vue"],
     analyzedAt: "2026-07-15T00:00:00.000Z",
     gitCommitHash: null,
+    roots: [
+      {
+        id: "main",
+        label: "Main",
+        path: ".",
+        gitCommitHash: null,
+      },
+    ],
   },
   nodes: [
     {
@@ -22,6 +30,7 @@ const graph: KnowledgeGraph = {
       summary: "App entry",
       tags: ["entry"],
       complexity: "low",
+      rootId: "main",
     },
     {
       id: "file:src/App.vue",
@@ -31,6 +40,7 @@ const graph: KnowledgeGraph = {
       summary: "Root component",
       tags: ["ui"],
       complexity: "medium",
+      rootId: "main",
     },
     {
       id: "mod:api",
@@ -39,6 +49,7 @@ const graph: KnowledgeGraph = {
       summary: "HTTP client",
       tags: ["network"],
       complexity: "low",
+      rootId: "main",
     },
   ],
   edges: [

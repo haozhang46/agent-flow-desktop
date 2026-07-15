@@ -44,6 +44,18 @@ const readyStatus: UaStatus = {
   roots: [{ id: "main", label: "Main", path: "." }],
 };
 
+const multiRootStatus: UaStatus = {
+  hasGraph: true,
+  busy: false,
+  busyKind: null,
+  summary: sampleSummary,
+  analyzedAt: sampleSummary.analyzedAt,
+  roots: [
+    { id: "web", label: "Frontend", path: "../frontend" },
+    { id: "api", label: "API", path: "../backend" },
+  ],
+};
+
 const draft: WorkflowDraft = {
   workflow: {
     version: 1,
@@ -80,6 +92,14 @@ const sampleGraph: KnowledgeGraph = {
     frameworks: ["vue"],
     analyzedAt: "2026-07-15T00:00:00.000Z",
     gitCommitHash: null,
+    roots: [
+      {
+        id: "main",
+        label: "Main",
+        path: ".",
+        gitCommitHash: null,
+      },
+    ],
   },
   nodes: [
     {
@@ -90,6 +110,7 @@ const sampleGraph: KnowledgeGraph = {
       summary: "App entry",
       tags: ["entry"],
       complexity: "low",
+      rootId: "main",
     },
   ],
   edges: [],
@@ -111,6 +132,7 @@ const pollProgress = vi.fn();
 const generateWorkflow = vi.fn();
 const applyWorkflow = vi.fn();
 const fetchGraph = vi.fn();
+const fetchWorkspace = vi.fn();
 
 vi.mock("../../src/composables/useUa", () => ({
   useUa: () => ({
@@ -125,6 +147,13 @@ vi.mock("../../src/composables/useUa", () => ({
   }),
 }));
 
+vi.mock("../../src/composables/useWorkspace", () => ({
+  useWorkspace: () => ({
+    fetchWorkspace,
+    saveWorkspace: vi.fn(),
+  }),
+}));
+
 async function settle(): Promise<void> {
   for (let i = 0; i < 5; i++) {
     await flushPromises();
@@ -136,6 +165,21 @@ describe("ProjectUnderstandPanel", () => {
     vi.clearAllMocks();
     vi.stubGlobal("confirm", vi.fn().mockReturnValue(true));
     fetchStatus.mockResolvedValue(idleStatus);
+    fetchWorkspace.mockResolvedValue({
+      workspace: {
+        version: 1,
+        name: "fixture",
+        roots: [{ id: "main", path: ".", label: "Main" }],
+      },
+      roots: [
+        {
+          id: "main",
+          path: ".",
+          label: "Main",
+          absolutePath: "/tmp/fixture",
+        },
+      ],
+    });
     startAnalyze.mockResolvedValue({ started: true });
     cancelAnalyze.mockResolvedValue({ cancelled: true });
     pollProgress.mockResolvedValue(null);
@@ -175,6 +219,53 @@ describe("ProjectUnderstandPanel", () => {
     expect(wrapper.get('[data-testid="ua-generate"]').attributes("disabled")).toBeUndefined();
   });
 
+  it("defaults root selection from defaults.analyzeRootIds", async () => {
+    fetchStatus.mockResolvedValue(multiRootStatus);
+    fetchWorkspace.mockResolvedValue({
+      workspace: {
+        version: 1,
+        name: "plat",
+        roots: [
+          { id: "web", path: "../frontend", label: "Frontend" },
+          { id: "api", path: "../backend", label: "API" },
+        ],
+        defaults: { analyzeRootIds: ["api"] },
+      },
+      roots: [],
+    });
+
+    const wrapper = mount(ProjectUnderstandPanel, { props: { show: true } });
+    await settle();
+
+    expect(
+      (wrapper.get('[data-testid="ua-analyze-root-api"]').element as HTMLInputElement)
+        .checked,
+    ).toBe(true);
+    expect(
+      (wrapper.get('[data-testid="ua-analyze-root-web"]').element as HTMLInputElement)
+        .checked,
+    ).toBe(false);
+
+    await wrapper.get('[data-testid="ua-analyze"]').trigger("click");
+    await settle();
+    expect(startAnalyze).toHaveBeenCalledWith({ rootIds: ["api"] });
+  });
+
+  it("disables analyze and generate when no roots selected", async () => {
+    fetchStatus.mockResolvedValue(multiRootStatus);
+    const wrapper = mount(ProjectUnderstandPanel, { props: { show: true } });
+    await settle();
+
+    await wrapper.get('[data-testid="ua-analyze-root-web"]').trigger("change");
+    await wrapper.get('[data-testid="ua-analyze-root-api"]').trigger("change");
+    await wrapper.get('[data-testid="ua-generate-root-web"]').trigger("change");
+    await wrapper.get('[data-testid="ua-generate-root-api"]').trigger("change");
+    await settle();
+
+    expect(wrapper.get('[data-testid="ua-analyze"]').attributes("disabled")).toBeDefined();
+    expect(wrapper.get('[data-testid="ua-generate"]').attributes("disabled")).toBeDefined();
+  });
+
   it("confirms token cost before first analyze when no graph", async () => {
     const confirm = vi.fn().mockReturnValue(true);
     vi.stubGlobal("confirm", confirm);
@@ -189,7 +280,7 @@ describe("ProjectUnderstandPanel", () => {
     await settle();
 
     expect(confirm).toHaveBeenCalled();
-    expect(startAnalyze).toHaveBeenCalled();
+    expect(startAnalyze).toHaveBeenCalledWith({ rootIds: ["main"] });
   });
 
   it("skips confirm when graph already exists", async () => {
@@ -204,7 +295,7 @@ describe("ProjectUnderstandPanel", () => {
     await settle();
 
     expect(confirm).not.toHaveBeenCalled();
-    expect(startAnalyze).toHaveBeenCalled();
+    expect(startAnalyze).toHaveBeenCalledWith({ rootIds: ["main"] });
   });
 
   it("polls progress every 1s while busy", async () => {
@@ -218,6 +309,7 @@ describe("ProjectUnderstandPanel", () => {
       phase: "scan",
       message: "Scanning…",
       percent: 5,
+      rootId: "main",
     });
 
     const wrapper = mount(ProjectUnderstandPanel, { props: { show: true } });
@@ -227,6 +319,7 @@ describe("ProjectUnderstandPanel", () => {
     expect(wrapper.find('[data-testid="ua-panel-progress"]').text()).toContain(
       "Scanning",
     );
+    expect(wrapper.find('[data-testid="ua-panel-progress"]').text()).toContain("[main]");
 
     await vi.advanceTimersByTimeAsync(1000);
     await settle();
@@ -242,7 +335,7 @@ describe("ProjectUnderstandPanel", () => {
     await wrapper.get('[data-testid="ua-generate"]').trigger("click");
     await settle();
 
-    expect(generateWorkflow).toHaveBeenCalledWith("build CI");
+    expect(generateWorkflow).toHaveBeenCalledWith("build CI", { rootIds: ["main"] });
     expect(wrapper.find('[data-testid="ua-draft-review"]').exists()).toBe(true);
     expect(wrapper.text()).toContain("Fixture Workflow");
 

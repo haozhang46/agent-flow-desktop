@@ -10,6 +10,27 @@ vi.mock("../../src/composables/useWorkflow", () => ({
   }),
 }));
 
+vi.mock("../../src/composables/useWorkspace", () => ({
+  useWorkspace: () => ({
+    fetchWorkspace: vi.fn().mockResolvedValue({
+      workspace: {
+        version: 1,
+        name: "project",
+        roots: [{ id: "main", path: ".", label: "Main" }],
+      },
+      roots: [
+        {
+          id: "main",
+          path: ".",
+          label: "Main",
+          absolutePath: "/tmp/project",
+        },
+      ],
+    }),
+    saveWorkspace: vi.fn(),
+  }),
+}));
+
 beforeEach(() => {
   localStorage.clear();
   document.documentElement.classList.remove("dark");

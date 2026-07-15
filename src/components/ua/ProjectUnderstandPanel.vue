@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref, watch } from "vue";
 import { useUa } from "../../composables/useUa";
+import { useWorkspace } from "../../composables/useWorkspace";
 import type {
   AnalyzeProgress,
   GraphSummary,
   KnowledgeGraph,
   UaStatus,
+  UaStatusRoot,
   WorkflowDraft,
 } from "../../types/ua";
 import GoalField from "./GoalField.vue";
@@ -32,6 +34,7 @@ const {
   generateWorkflow,
   applyWorkflow,
 } = useUa();
+const { fetchWorkspace } = useWorkspace();
 
 const status = ref<UaStatus | null>(null);
 const progress = ref<AnalyzeProgress | null>(null);
@@ -43,15 +46,47 @@ const loading = ref(false);
 const generating = ref(false);
 const applying = ref(false);
 const showExplorer = ref(false);
+const analyzeRootIds = ref<string[]>([]);
+const generateRootIds = ref<string[]>([]);
+const defaultRootIds = ref<string[] | null>(null);
 
 let pollTimer: ReturnType<typeof setInterval> | null = null;
 
+const roots = computed<UaStatusRoot[]>(() => status.value?.roots ?? []);
 const summary = computed<GraphSummary | null>(
   () => status.value?.summary ?? null,
 );
 const hasGraph = computed(() => status.value?.hasGraph === true);
 const busy = computed(() => status.value?.busy === true || generating.value);
-const generateDisabled = computed(() => !hasGraph.value || busy.value);
+const analyzeDisabled = computed(
+  () =>
+    analyzeRootIds.value.length === 0 ||
+    (busy.value && status.value?.busyKind === "analyze"),
+);
+const generateDisabled = computed(
+  () => !hasGraph.value || busy.value || generateRootIds.value.length === 0,
+);
+
+function applyDefaultSelection(available: UaStatusRoot[]): void {
+  const allIds = available.map((r) => r.id);
+  const preferred = (defaultRootIds.value ?? []).filter((id) => allIds.includes(id));
+  const selected = preferred.length > 0 ? preferred : allIds;
+  analyzeRootIds.value = [...selected];
+  generateRootIds.value = [...selected];
+}
+
+function toggleRoot(list: "analyze" | "generate", id: string): void {
+  const target = list === "analyze" ? analyzeRootIds : generateRootIds;
+  if (target.value.includes(id)) {
+    target.value = target.value.filter((x) => x !== id);
+  } else {
+    target.value = [...target.value, id];
+  }
+}
+
+function isSelected(list: "analyze" | "generate", id: string): boolean {
+  return (list === "analyze" ? analyzeRootIds : generateRootIds).value.includes(id);
+}
 
 function stopPolling(): void {
   if (pollTimer) {
@@ -91,7 +126,12 @@ async function load(): Promise<void> {
   showExplorer.value = false;
   graph.value = null;
   try {
-    await refreshStatus();
+    const [ws] = await Promise.all([
+      fetchWorkspace().catch(() => null),
+      refreshStatus(),
+    ]);
+    defaultRootIds.value = ws?.workspace.defaults?.analyzeRootIds ?? null;
+    applyDefaultSelection(status.value?.roots ?? []);
     if (status.value?.busy) {
       startPolling();
     }
@@ -103,6 +143,7 @@ async function load(): Promise<void> {
 }
 
 async function onAnalyze(): Promise<void> {
+  if (analyzeDisabled.value || analyzeRootIds.value.length === 0) return;
   error.value = null;
   if (!hasGraph.value) {
     const ok = window.confirm(
@@ -111,7 +152,7 @@ async function onAnalyze(): Promise<void> {
     if (!ok) return;
   }
   try {
-    await startAnalyze();
+    await startAnalyze({ rootIds: [...analyzeRootIds.value] });
     await refreshStatus();
     startPolling();
   } catch (err) {
@@ -136,7 +177,9 @@ async function onGenerate(): Promise<void> {
   generating.value = true;
   draft.value = null;
   try {
-    const res = await generateWorkflow(goal.value || null);
+    const res = await generateWorkflow(goal.value || null, {
+      rootIds: [...generateRootIds.value],
+    });
     draft.value = res.draft;
     await refreshStatus();
   } catch (err) {
@@ -257,12 +300,66 @@ onUnmounted(() => {
             class="text-gray-500"
             data-testid="ua-panel-progress"
           >
+            <span v-if="progress.rootId" class="text-gray-400">[{{ progress.rootId }}] </span>
             {{ progress.phase }} — {{ progress.message }}
             <span v-if="progress.percent != null"> ({{ progress.percent }}%)</span>
           </p>
         </div>
 
-        <GraphSummaryView v-if="hasGraph && summary" :summary="summary" />
+        <div
+          v-if="roots.length"
+          class="space-y-3"
+          data-testid="ua-root-selectors"
+        >
+          <div data-testid="ua-analyze-roots">
+            <p class="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1.5">
+              Analyze roots
+            </p>
+            <div class="flex flex-wrap gap-2">
+              <label
+                v-for="root in roots"
+                :key="`analyze-${root.id}`"
+                class="inline-flex items-center gap-1.5 text-xs text-gray-700 cursor-pointer border border-gray-200 rounded px-2 py-1"
+              >
+                <input
+                  type="checkbox"
+                  :checked="isSelected('analyze', root.id)"
+                  :data-testid="`ua-analyze-root-${root.id}`"
+                  @change="toggleRoot('analyze', root.id)"
+                />
+                <span>{{ root.label || root.id }}</span>
+                <span class="text-gray-400">{{ root.path }}</span>
+              </label>
+            </div>
+          </div>
+          <div data-testid="ua-generate-roots">
+            <p class="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1.5">
+              Generate roots
+            </p>
+            <div class="flex flex-wrap gap-2">
+              <label
+                v-for="root in roots"
+                :key="`generate-${root.id}`"
+                class="inline-flex items-center gap-1.5 text-xs text-gray-700 cursor-pointer border border-gray-200 rounded px-2 py-1"
+              >
+                <input
+                  type="checkbox"
+                  :checked="isSelected('generate', root.id)"
+                  :data-testid="`ua-generate-root-${root.id}`"
+                  @change="toggleRoot('generate', root.id)"
+                />
+                <span>{{ root.label || root.id }}</span>
+                <span class="text-gray-400">{{ root.path }}</span>
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <GraphSummaryView
+          v-if="hasGraph && summary"
+          :summary="summary"
+          :roots="roots"
+        />
 
         <p
           v-else-if="!loading && status && !hasGraph"
@@ -296,7 +393,7 @@ onUnmounted(() => {
           type="button"
           class="text-xs px-3 py-1.5 rounded-lg border border-gray-300 hover:bg-gray-50 disabled:opacity-50"
           data-testid="ua-analyze"
-          :disabled="busy && status?.busyKind === 'analyze'"
+          :disabled="analyzeDisabled"
           @click="onAnalyze"
         >
           Analyze
