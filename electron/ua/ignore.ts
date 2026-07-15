@@ -1,4 +1,5 @@
 import fs from "node:fs/promises";
+import path from "node:path";
 import { ignorePath, resolveUaDir } from "./paths";
 
 export const DEFAULT_IGNORE_PATTERNS = [
@@ -72,4 +73,31 @@ export async function loadIgnorePatterns(projectRoot: string): Promise<string[]>
     }
     throw error;
   }
+}
+
+async function readIgnoreFileIfPresent(filePath: string): Promise<string[]> {
+  try {
+    const text = await fs.readFile(filePath, "utf-8");
+    return parseUnderstandIgnore(text);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return [];
+    }
+    throw error;
+  }
+}
+
+export async function loadIgnorePatternsForRoot(
+  workspaceRoot: string,
+  rootAbsPath: string,
+): Promise<string[]> {
+  const patterns = await loadIgnorePatterns(workspaceRoot);
+
+  const rootUaIgnore = path.join(rootAbsPath, ".ua", ".understandignore");
+  const rootIgnore = path.join(rootAbsPath, ".understandignore");
+
+  const rootUaPatterns = await readIgnoreFileIfPresent(rootUaIgnore);
+  const rootPatterns = await readIgnoreFileIfPresent(rootIgnore);
+
+  return [...patterns, ...rootUaPatterns, ...rootPatterns];
 }

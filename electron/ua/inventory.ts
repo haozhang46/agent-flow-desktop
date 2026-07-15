@@ -1,19 +1,28 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { isIgnored, loadIgnorePatterns } from "./ignore";
+import { isIgnored, loadIgnorePatternsForRoot } from "./ignore";
 
 export interface InventoryEntry {
+  rootId: string;
   path: string;
   bytes: number;
 }
 
 const DEFAULT_MAX_FILES = 2000;
 
-export async function inventoryProject(
-  projectRoot: string,
-  maxFiles = DEFAULT_MAX_FILES,
+export type InventoryRootOptions = {
+  workspaceRoot: string;
+  rootId: string;
+  absolutePath: string;
+  maxFiles?: number;
+};
+
+export async function inventoryRoot(
+  opts: InventoryRootOptions,
 ): Promise<InventoryEntry[]> {
-  const patterns = await loadIgnorePatterns(projectRoot);
+  const { workspaceRoot, rootId, absolutePath, maxFiles = DEFAULT_MAX_FILES } =
+    opts;
+  const patterns = await loadIgnorePatternsForRoot(workspaceRoot, absolutePath);
   const entries: InventoryEntry[] = [];
 
   async function walk(dir: string): Promise<void> {
@@ -21,7 +30,7 @@ export async function inventoryProject(
       return;
     }
 
-    const relDir = path.relative(projectRoot, dir);
+    const relDir = path.relative(absolutePath, dir);
     const relDirPosix =
       relDir === "" ? "" : relDir.split(path.sep).join("/");
 
@@ -38,7 +47,10 @@ export async function inventoryProject(
       }
 
       const absPath = path.join(dir, name);
-      const relPath = path.relative(projectRoot, absPath).split(path.sep).join("/");
+      const relPath = path
+        .relative(absolutePath, absPath)
+        .split(path.sep)
+        .join("/");
 
       if (isIgnored(relPath, patterns)) {
         continue;
@@ -48,12 +60,24 @@ export async function inventoryProject(
       if (stat.isDirectory()) {
         await walk(absPath);
       } else if (stat.isFile()) {
-        entries.push({ path: relPath, bytes: stat.size });
+        entries.push({ rootId, path: relPath, bytes: stat.size });
       }
     }
   }
 
-  await walk(projectRoot);
+  await walk(absolutePath);
   entries.sort((a, b) => a.path.localeCompare(b.path));
   return entries;
+}
+
+export async function inventoryProject(
+  projectRoot: string,
+  maxFiles = DEFAULT_MAX_FILES,
+): Promise<InventoryEntry[]> {
+  return inventoryRoot({
+    workspaceRoot: projectRoot,
+    rootId: "main",
+    absolutePath: projectRoot,
+    maxFiles,
+  });
 }
