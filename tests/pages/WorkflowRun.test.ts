@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { mount, flushPromises } from "@vue/test-utils";
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import WorkflowRun from "../../src/pages/WorkflowRun.vue";
 import type { DesktopApi } from "../../electron/preload";
 
@@ -68,6 +68,21 @@ const mockState = {
   threadId: "thread-1",
 };
 
+const emptyUaStatus = {
+  hasGraph: false,
+  busy: false,
+  busyKind: null,
+  summary: null,
+  analyzedAt: null,
+};
+
+function mockUaStatusFetch(url: string) {
+  if (url.includes("/v1/ua/status")) {
+    return new Response(JSON.stringify(emptyUaStatus), { status: 200 });
+  }
+  return null;
+}
+
 function mockChatMemoryFetch(url: string, method: string) {
   if (url.match(/\/v1\/chat-memory\/threads\/[^/?]+/) && method === "GET") {
     return new Response(
@@ -102,6 +117,7 @@ function mockChatMemoryFetch(url: string, method: string) {
 
 describe("WorkflowRun", () => {
   beforeEach(() => {
+    localStorage.clear();
     const desktop: DesktopApi = {
       getApiKeyStatus: vi.fn().mockResolvedValue(""),
       setApiKey: vi.fn().mockResolvedValue(true),
@@ -123,7 +139,9 @@ describe("WorkflowRun", () => {
       vi.fn(async (input: string | URL, init?: RequestInit) => {
         const url = String(input);
         const method = init?.method ?? "GET";
-        const chatMemory = mockChatMemoryFetch(url, method, init);
+        const uaStatus = mockUaStatusFetch(url);
+        if (uaStatus) return uaStatus;
+        const chatMemory = mockChatMemoryFetch(url, method);
         if (chatMemory) return chatMemory;
         if (
           url.includes("/v1/workflows") &&
@@ -172,6 +190,28 @@ describe("WorkflowRun", () => {
           const content = url.includes("architecture") ? "# Architecture\n" : "# PRD\n\nSample";
           return new Response(JSON.stringify({ path, content }), { status: 200 });
         }
+        if (url.includes("/v1/workflows/default-dev-cicd/workspaces/architecture")) {
+          return new Response(
+            JSON.stringify({
+              version: 1,
+              stepId: "architecture",
+              layout: "stack",
+              components: [
+                {
+                  id: "arch",
+                  type: "architecture-docs",
+                  props: {
+                    files: [
+                      { path: "docs/architecture.md", label: "Architecture" },
+                      { path: "AGENTS.md", label: "AGENTS.md" },
+                    ],
+                  },
+                },
+              ],
+            }),
+            { status: 200 },
+          );
+        }
         if (url.match(/\/v1\/workflows\/[^/]+\/workspaces\/[^/]+$/)) {
           return new Response("not found", { status: 404 });
         }
@@ -180,21 +220,24 @@ describe("WorkflowRun", () => {
     );
   });
 
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it("mounts and shows workflow steps with status badges", async () => {
     const wrapper = mount(WorkflowRun, {
       props: { workspace: "/tmp/project" },
     });
-    await vi.waitFor(async () => {
-      await flushPromises();
-      expect(wrapper.text()).toContain("Documents");
-    });
+    await settle();
 
+    expect(wrapper.text()).toContain("From project");
     expect(wrapper.text()).toContain("Dev to CI/CD Pipeline");
     expect(wrapper.text()).toContain("PRD");
     expect(wrapper.text()).toContain("Architecture");
     expect(wrapper.text()).toContain("Pending");
     expect(wrapper.text()).toContain("Continue");
     expect(wrapper.text()).toContain("Step Chat");
+    wrapper.unmount();
   });
 
   it("shows architecture panel when architecture step selected", async () => {
@@ -208,10 +251,14 @@ describe("WorkflowRun", () => {
       .find((b) => b.text().includes("Architecture") && b.text().includes("Pending"));
     expect(archBtn).toBeDefined();
     await archBtn!.trigger("click");
-    await vi.waitFor(async () => {
-      await flushPromises();
-      expect(wrapper.text()).toContain("docs/architecture.md");
-    });
+    await vi.waitFor(
+      async () => {
+        await flushPromises();
+        expect(wrapper.text()).toContain("docs/architecture.md");
+      },
+      { timeout: 5000 },
+    );
+    wrapper.unmount();
   });
 
   it("switches to Free Chat tab", async () => {
@@ -233,7 +280,9 @@ describe("WorkflowRun", () => {
       vi.fn(async (input: string | URL, init?: RequestInit) => {
         const url = String(input);
         const method = init?.method ?? "GET";
-        const chatMemory = mockChatMemoryFetch(url, method, init);
+        const uaStatus = mockUaStatusFetch(url);
+        if (uaStatus) return uaStatus;
+        const chatMemory = mockChatMemoryFetch(url, method);
         if (chatMemory) return chatMemory;
         if (url.includes("/v1/workflows") && !url.includes("/current") && !url.includes("/templates") && !url.includes("/workspaces/")) {
           return new Response(
