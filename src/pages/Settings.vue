@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
+import { useTheme } from "../composables/useTheme";
 import { useWorkflow, type OpsConfig } from "../composables/useWorkflow";
 
 const emit = defineEmits<{ back: [] }>();
 
+const { theme, setTheme } = useTheme();
 const workflowApi = useWorkflow();
 
 const apiKeyStatus = ref("");
@@ -94,6 +96,39 @@ async function saveAgentRecursionLimit() {
   <div class="max-w-lg mx-auto p-8">
     <button class="text-sm text-blue-600 mb-6" @click="emit('back')">← Back</button>
     <h1 class="text-xl font-semibold mb-4">Settings</h1>
+
+    <section class="mb-8">
+      <h2 class="text-sm font-medium mb-2">Appearance</h2>
+      <p class="text-sm text-gray-500 mb-3">Choose light or dark theme for the app.</p>
+      <div class="inline-flex rounded border border-gray-200 dark:border-gray-600 overflow-hidden">
+        <button
+          type="button"
+          data-testid="theme-light"
+          class="text-sm px-3 py-1.5 transition-colors"
+          :class="
+            theme === 'light'
+              ? 'bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300'
+              : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'
+          "
+          @click="setTheme('light')"
+        >
+          Light
+        </button>
+        <button
+          type="button"
+          data-testid="theme-dark"
+          class="text-sm px-3 py-1.5 transition-colors border-l border-gray-200 dark:border-gray-600"
+          :class="
+            theme === 'dark'
+              ? 'bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300'
+              : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'
+          "
+          @click="setTheme('dark')"
+        >
+          Dark
+        </button>
+      </div>
+    </section>
 
     <section class="mb-8">
       <h2 class="text-sm font-medium mb-2">DeepSeek API Key</h2>
