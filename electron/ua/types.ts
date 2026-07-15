@@ -53,6 +53,8 @@ export const KnowledgeGraphSchema = z.object({
   tour: z.array(TourStepSchema),
 });
 
+export type GraphNode = z.infer<typeof GraphNodeSchema>;
+export type GraphEdge = z.infer<typeof GraphEdgeSchema>;
 export type KnowledgeGraph = z.infer<typeof KnowledgeGraphSchema>;
 
 export const UaConfigSchema = z.object({
