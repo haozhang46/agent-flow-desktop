@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
 import ChatPanel from "../components/chat/ChatPanel.vue";
+import ClarificationCard from "../components/chat/ClarificationCard.vue";
 import PlanApprovalCard from "../components/chat/PlanApprovalCard.vue";
 import WorkspaceApprovalCard from "../components/workflow/WorkspaceApprovalCard.vue";
 import AgentflowFileApprovalCard from "../components/workflow/AgentflowFileApprovalCard.vue";
 import { shouldShowThinking, useChatStream } from "../composables/useChatStream";
+import type { ClarificationAnswer } from "../composables/useClarification";
 import { useChatMemory } from "../composables/useChatMemory";
 import { useAutoThreadTitle } from "../composables/useAutoThreadTitle";
 import { migrateLocalChatIfNeeded } from "../composables/migrateLocalChat";
@@ -44,7 +46,12 @@ const autoTitle = useAutoThreadTitle({
   postGenerateTitle,
 });
 
-const { sending, send, fetchSkillCatalog } = useChatStream();
+const { sending, send, answerClarification, clarification, fetchSkillCatalog } = useChatStream({
+  getResumeExtras: () => ({
+    mode: threadMeta.value.mode,
+    skills: threadMeta.value.skills,
+  }),
+});
 
 const {
   pendingWorkspace: pendingWorkspaceApproval,
@@ -132,6 +139,7 @@ async function onSelectThread(id: string) {
   const meta = await selectThread(id);
   if (meta) applyThreadMeta(meta.mode, meta.skills);
   pendingPlan.value = null;
+  clarification.cancelPending();
 }
 
 async function onRenameThread(id: string, title: string) {
@@ -143,11 +151,13 @@ async function onNewChat() {
   const thread = threads.value.find((t) => t.id === id);
   applyThreadMeta(thread?.mode, thread?.skills);
   pendingPlan.value = null;
+  clarification.cancelPending();
 }
 
 function setMode(mode: ChatMode) {
   threadMeta.value = { ...threadMeta.value, mode };
   pendingPlan.value = null;
+  clarification.cancelPending();
 }
 
 function onToggleSkill(name: string) {
@@ -223,6 +233,16 @@ function onEditPlan() {
 function onCancelPlan() {
   pendingPlan.value = null;
 }
+
+async function onClarificationSubmit(answer: ClarificationAnswer) {
+  await answerClarification(answer, {
+    memory: chatMemory,
+    mode: threadMeta.value.mode,
+    onToolEnd: (event) => {
+      handleToolEndOutput(event.output);
+    },
+  });
+}
 </script>
 
 <template>
@@ -276,6 +296,16 @@ function onCancelPlan() {
         Exploring workspace and drafting plan…
       </p>
       <p v-else-if="showThinking" class="text-gray-400 text-xs">Thinking…</p>
+      <ClarificationCard
+        v-if="clarification.pending.value"
+        :question="clarification.pending.value.question"
+        :options="clarification.pending.value.options"
+        :allow-multiple="clarification.pending.value.allow_multiple"
+        :allow-free-text="clarification.pending.value.allow_free_text"
+        :status="clarification.cardStatus.value"
+        :error="clarification.error.value"
+        @submit="onClarificationSubmit"
+      />
       <PlanApprovalCard
         v-if="pendingPlan && threadMeta.mode === 'plan'"
         :plan-content="pendingPlan"
