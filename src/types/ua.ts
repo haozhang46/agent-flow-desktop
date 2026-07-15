@@ -24,6 +24,13 @@ export type UaStatus = {
   analyzedAt: string | null;
 };
 
+export type ProjectRootMeta = {
+  id: string;
+  label: string;
+  path: string;
+  gitCommitHash: string | null;
+};
+
 export type KnowledgeGraph = {
   version?: string;
   project: {
@@ -33,6 +40,7 @@ export type KnowledgeGraph = {
     frameworks: string[];
     analyzedAt: string;
     gitCommitHash: string | null;
+    roots: ProjectRootMeta[];
   };
   nodes: {
     id: string;
@@ -42,6 +50,7 @@ export type KnowledgeGraph = {
     summary: string;
     tags: string[];
     complexity: "low" | "medium" | "high";
+    rootId: string;
   }[];
   edges: {
     source: string;

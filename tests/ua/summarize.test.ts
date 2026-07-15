@@ -20,6 +20,7 @@ async function loadFixture(): Promise<KnowledgeGraph> {
 function makeNode(
   id: string,
   tags: string[] = [],
+  rootId = "main",
 ): GraphNode {
   return {
     id,
@@ -28,6 +29,7 @@ function makeNode(
     summary: `Summary for ${id}`,
     tags,
     complexity: "low",
+    rootId,
   };
 }
 
@@ -44,6 +46,7 @@ function makeGraph(
       frameworks: [],
       analyzedAt: "2026-07-15T00:00:00.000Z",
       gitCommitHash: null,
+      roots: [{ id: "main", label: "Main", path: ".", gitCommitHash: null }],
     },
     nodes,
     edges,

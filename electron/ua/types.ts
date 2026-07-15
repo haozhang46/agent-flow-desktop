@@ -2,6 +2,13 @@ import { z } from "zod";
 
 export const ComplexitySchema = z.enum(["low", "medium", "high"]);
 
+export const ProjectRootMetaSchema = z.object({
+  id: z.string(),
+  label: z.string(),
+  path: z.string(),
+  gitCommitHash: z.string().nullable(),
+});
+
 export const ProjectSchema = z.object({
   name: z.string(),
   description: z.string(),
@@ -9,6 +16,7 @@ export const ProjectSchema = z.object({
   frameworks: z.array(z.string()),
   analyzedAt: z.string(),
   gitCommitHash: z.string().nullable(),
+  roots: z.array(ProjectRootMetaSchema).default([]),
 });
 
 export const GraphNodeSchema = z.object({
@@ -19,6 +27,7 @@ export const GraphNodeSchema = z.object({
   summary: z.string(),
   tags: z.array(z.string()),
   complexity: ComplexitySchema,
+  rootId: z.string(),
 });
 
 export const GraphEdgeSchema = z.object({
