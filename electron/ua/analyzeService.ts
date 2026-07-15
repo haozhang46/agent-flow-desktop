@@ -1,5 +1,6 @@
 import { inventoryProject, type InventoryEntry } from "./inventory";
 import { readGraph, writeGraph } from "./graphStore";
+import { acquireProjectLock, releaseProjectLock } from "./projectLock";
 import type { KnowledgeGraph } from "./types";
 
 export type AnalyzeProgress = {
@@ -63,9 +64,7 @@ export class AnalyzeService {
     projectRoot: string,
     opts?: { forceFull?: boolean },
   ): Promise<KnowledgeGraph> {
-    if (this.busy.has(projectRoot)) {
-      throw new Error(`Analyze already running for ${projectRoot}`);
-    }
+    acquireProjectLock(projectRoot, "analyze");
 
     const controller = new AbortController();
     const run = this.runAnalyze(projectRoot, opts, controller);
@@ -75,6 +74,7 @@ export class AnalyzeService {
       return await run;
     } finally {
       this.busy.delete(projectRoot);
+      releaseProjectLock(projectRoot, "analyze");
     }
   }
 

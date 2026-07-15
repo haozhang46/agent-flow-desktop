@@ -148,3 +148,12 @@ skills:
     triggers:
       - understand
       - knowledge graph
+  - name: generate-workflow-from-graph
+    description: Generate a free-form Agent Flow workflow draft from a UA knowledge graph summary
+    skill_type: instruction
+    spawn_subagent: false
+    path: generate-workflow-from-graph/SKILL.md
+    visibility: public
+    triggers:
+      - generate workflow
+      - workflow from graph

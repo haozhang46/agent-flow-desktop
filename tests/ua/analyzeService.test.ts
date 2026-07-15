@@ -74,7 +74,7 @@ describe("AnalyzeService", () => {
     const service = new AnalyzeService(runner);
 
     const first = service.start(tmp);
-    await expect(service.start(tmp)).rejects.toThrow(/already running/i);
+    await expect(service.start(tmp)).rejects.toThrow(/analyze in progress/i);
     expect(service.isBusy(tmp)).toBe(true);
 
     release();
