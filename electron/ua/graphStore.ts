@@ -7,8 +7,59 @@ import {
 } from "./types";
 import { configPath, graphPath, resolveUaDir } from "./paths";
 
+/**
+ * Migrate pre-multi-root graphs before Zod parse:
+ * - missing node.rootId → "main"
+ * - missing project.roots → single main root from project meta
+ */
+export function normalizeGraph(raw: unknown): unknown {
+  if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
+    return raw;
+  }
+
+  const data = { ...(raw as Record<string, unknown>) };
+
+  if (Array.isArray(data.nodes)) {
+    data.nodes = data.nodes.map((node) => {
+      if (node === null || typeof node !== "object" || Array.isArray(node)) {
+        return node;
+      }
+      const n = { ...(node as Record<string, unknown>) };
+      if (n.rootId === undefined || n.rootId === null || n.rootId === "") {
+        n.rootId = "main";
+      }
+      return n;
+    });
+  }
+
+  if (data.project !== null && typeof data.project === "object" && !Array.isArray(data.project)) {
+    const project = { ...(data.project as Record<string, unknown>) };
+    if (!Array.isArray(project.roots)) {
+      const label =
+        typeof project.name === "string" && project.name.length > 0
+          ? project.name
+          : "Main";
+      const gitCommitHash =
+        typeof project.gitCommitHash === "string" || project.gitCommitHash === null
+          ? (project.gitCommitHash as string | null)
+          : null;
+      project.roots = [
+        {
+          id: "main",
+          label,
+          path: ".",
+          gitCommitHash,
+        },
+      ];
+    }
+    data.project = project;
+  }
+
+  return data;
+}
+
 export function assertValidGraph(data: unknown): KnowledgeGraph {
-  return KnowledgeGraphSchema.parse(data);
+  return KnowledgeGraphSchema.parse(normalizeGraph(data));
 }
 
 export async function readGraph(projectRoot: string): Promise<KnowledgeGraph | null> {

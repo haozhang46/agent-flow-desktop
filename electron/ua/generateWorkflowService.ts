@@ -68,6 +68,39 @@ function resolveSelectedRootIds(
   return [...new Set(graph.nodes.map((node) => node.rootId))];
 }
 
+/** Scope graph nodes/edges/layers/tour to the given rootIds for summary/curation. */
+export function filterGraphByRoots(
+  graph: KnowledgeGraph,
+  rootIds: string[],
+): KnowledgeGraph {
+  const selected = new Set(rootIds);
+  const nodes = graph.nodes.filter((node) => selected.has(node.rootId));
+  const nodeIds = new Set(nodes.map((node) => node.id));
+  return {
+    ...graph,
+    project: {
+      ...graph.project,
+      roots: graph.project.roots.filter((root) => selected.has(root.id)),
+    },
+    nodes,
+    edges: graph.edges.filter(
+      (edge) => nodeIds.has(edge.source) && nodeIds.has(edge.target),
+    ),
+    layers: graph.layers
+      .map((layer) => ({
+        ...layer,
+        nodeIds: layer.nodeIds.filter((id) => nodeIds.has(id)),
+      }))
+      .filter((layer) => layer.nodeIds.length > 0),
+    tour: graph.tour
+      .map((step) => ({
+        ...step,
+        nodeIds: step.nodeIds.filter((id) => nodeIds.has(id)),
+      }))
+      .filter((step) => step.nodeIds.length > 0),
+  };
+}
+
 function assertSelectedRootsAnalyzed(
   graph: KnowledgeGraph,
   rootIds: string[],
@@ -142,8 +175,16 @@ export async function generateDraft(
     }
 
     const effectiveGoal = resolveEffectiveGoal(goal);
-    const summaryMarkdown = summaryToMarkdown(summarizeGraph(graph));
-    const curatedMarkdown = curatedSubgraphMarkdown(graph, undefined, opts?.rootIds);
+    const graphForSummary =
+      opts?.rootIds !== undefined
+        ? filterGraphByRoots(graph, selectedRootIds)
+        : graph;
+    const summaryMarkdown = summaryToMarkdown(summarizeGraph(graphForSummary));
+    const curatedMarkdown = curatedSubgraphMarkdown(
+      graph,
+      undefined,
+      opts?.rootIds,
+    );
 
     const raw = await runner({
       summaryMarkdown,

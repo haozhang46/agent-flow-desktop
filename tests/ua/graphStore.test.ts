@@ -5,6 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   assertValidGraph,
+  normalizeGraph,
   readGraph,
   readUaConfig,
   writeGraph,
@@ -72,5 +73,125 @@ describe("graphStore", () => {
     const config = { outputLanguage: "en" as const };
     await writeUaConfig(tmp, config);
     expect(await readUaConfig(tmp)).toEqual(config);
+  });
+
+  it("normalizeGraph defaults missing node rootId to main", () => {
+    const normalized = normalizeGraph({
+      project: {
+        name: "legacy",
+        description: "pre multi-root",
+        languages: [],
+        frameworks: [],
+        analyzedAt: "2026-07-15T00:00:00.000Z",
+        gitCommitHash: "abc123",
+      },
+      nodes: [
+        {
+          id: "file:a.ts",
+          type: "file",
+          name: "a.ts",
+          summary: "s",
+          tags: [],
+          complexity: "low",
+        },
+      ],
+      edges: [],
+      layers: [],
+      tour: [],
+    }) as {
+      nodes: { rootId: string }[];
+      project: {
+        roots: { id: string; label: string; path: string; gitCommitHash: string | null }[];
+      };
+    };
+
+    expect(normalized.nodes[0]!.rootId).toBe("main");
+    expect(normalized.project.roots).toEqual([
+      {
+        id: "main",
+        label: "legacy",
+        path: ".",
+        gitCommitHash: "abc123",
+      },
+    ]);
+  });
+
+  it("assertValidGraph migrates pre-multi-root graphs on parse", () => {
+    const graph = assertValidGraph({
+      project: {
+        name: "legacy-app",
+        description: "old format",
+        languages: ["ts"],
+        frameworks: [],
+        analyzedAt: "2026-07-15T00:00:00.000Z",
+        gitCommitHash: null,
+      },
+      nodes: [
+        {
+          id: "file:src/main.ts",
+          type: "file",
+          name: "main.ts",
+          filePath: "src/main.ts",
+          summary: "entry",
+          tags: [],
+          complexity: "low",
+        },
+      ],
+      edges: [],
+      layers: [],
+      tour: [],
+    });
+
+    expect(graph.nodes[0]!.rootId).toBe("main");
+    expect(graph.project.roots).toEqual([
+      {
+        id: "main",
+        label: "legacy-app",
+        path: ".",
+        gitCommitHash: null,
+      },
+    ]);
+  });
+
+  it("readGraph migrates legacy on-disk graphs missing rootId/roots", async () => {
+    const uaDir = await resolveUaDir(tmp);
+    await fs.mkdir(uaDir, { recursive: true });
+    await fs.writeFile(
+      graphPath(uaDir),
+      JSON.stringify({
+        project: {
+          name: "disk-legacy",
+          description: "from disk",
+          languages: [],
+          frameworks: [],
+          analyzedAt: "2026-07-15T00:00:00.000Z",
+          gitCommitHash: "deadbeef",
+        },
+        nodes: [
+          {
+            id: "file:index.ts",
+            type: "file",
+            name: "index.ts",
+            summary: "s",
+            tags: [],
+            complexity: "low",
+          },
+        ],
+        edges: [],
+        layers: [],
+        tour: [],
+      }),
+      "utf8",
+    );
+
+    const loaded = await readGraph(tmp);
+    expect(loaded).not.toBeNull();
+    expect(loaded!.nodes[0]!.rootId).toBe("main");
+    expect(loaded!.project.roots[0]).toEqual({
+      id: "main",
+      label: "disk-legacy",
+      path: ".",
+      gitCommitHash: "deadbeef",
+    });
   });
 });

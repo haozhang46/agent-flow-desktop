@@ -235,7 +235,7 @@ describe("generateDraft", () => {
     ).rejects.toThrow(/not analyzed/i);
   });
 
-  it("curates only selected roots and records meta rootIds + hashes", async () => {
+  it("curates and summarizes only selected roots when rootIds set", async () => {
     const graph = await loadFixture();
     await writeGraph(tmp, {
       ...graph,
@@ -262,8 +262,10 @@ describe("generateDraft", () => {
     });
 
     let curated: string | null = null;
+    let summary: string | null = null;
     const runner: GenerateWorkflowRunner = async (input) => {
       curated = input.curatedMarkdown;
+      summary = input.summaryMarkdown;
       return makeDraft({
         meta: {
           source: "ua-graph",
@@ -282,6 +284,9 @@ describe("generateDraft", () => {
 
     expect(curated).toContain("file:src/main.ts");
     expect(curated).not.toContain("root:api/file:server.ts");
+    expect(summary).toContain("- Nodes: 1");
+    expect(summary).toContain("file:src/main.ts");
+    expect(summary).not.toContain("root:api/file:server.ts");
     expect(draft.meta.rootIds).toEqual(["main"]);
     expect(draft.meta.gitCommitHashes).toEqual({ main: "aaa111" });
     expect(draft.meta.gitCommitHash).toBe("aaa111");
