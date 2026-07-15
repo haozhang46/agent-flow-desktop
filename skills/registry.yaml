@@ -139,3 +139,12 @@ skills:
       - finance
       - ledger
       - budget
+  - name: understand
+    description: Analyze a codebase into a UA-compatible knowledge graph
+    skill_type: instruction
+    spawn_subagent: false
+    path: understand/SKILL.md
+    visibility: public
+    triggers:
+      - understand
+      - knowledge graph

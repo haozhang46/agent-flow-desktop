@@ -6,6 +6,7 @@ describe("skill loader", () => {
     const names = await listSkills();
     expect(names.length).toBeGreaterThan(0);
     expect(names).toContain("test-driven-development");
+    expect(names).toContain("understand");
   });
 
   it("loadSkillBodies returns content matching skill name", async () => {
