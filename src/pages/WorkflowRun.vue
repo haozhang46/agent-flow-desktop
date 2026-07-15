@@ -44,6 +44,11 @@ import {
   type WorkflowRunState,
   type WorkflowSummary,
 } from "../composables/useWorkflow";
+import {
+  handleCreateChatThread,
+  handleSelectChatThread,
+  handleWorkflowContextChange,
+} from "./workflowRunChatActions";
 
 defineProps<{ workspace: string }>();
 
@@ -350,13 +355,18 @@ async function ensureActiveChatThread() {
 }
 
 async function onSelectChatThread(id: string) {
-  const meta = await activeChatMemory.value.selectThread(id);
-  applyThreadSkills(meta?.skills);
+  await handleSelectChatThread(id, {
+    cancelPending: clarification.cancelPending,
+    selectThread: (threadId) => activeChatMemory.value.selectThread(threadId),
+    applyThreadSkills,
+  });
 }
 
 function onCreateChatThread() {
-  void activeChatMemory.value.createThread("New Chat").then(() => {
-    syncThreadSkillsFromActiveThread();
+  handleCreateChatThread({
+    cancelPending: clarification.cancelPending,
+    createThread: (title) => activeChatMemory.value.createThread(title),
+    syncThreadSkills: syncThreadSkillsFromActiveThread,
   });
 }
 
@@ -514,6 +524,7 @@ watch(
 watch(
   () => [selectedWorkflowId.value, activeStepId.value] as const,
   async ([workflowId, stepId]) => {
+    handleWorkflowContextChange(clarification.cancelPending);
     fetchedWorkspace.value = null;
     workspaceResolved.value = false;
     if (!workflowId || !stepId) {
