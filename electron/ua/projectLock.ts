@@ -16,3 +16,7 @@ export function releaseProjectLock(root: string, kind: LockKind): void {
     locks.delete(root);
   }
 }
+
+export function getProjectLock(root: string): LockKind | null {
+  return locks.get(root) ?? null;
+}

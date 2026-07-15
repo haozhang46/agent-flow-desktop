@@ -38,6 +38,7 @@ import {
   setWorkflowIntent,
 } from "../workflow/workflowService";
 import { handleLangflowRoutes } from "../langflow/routes";
+import { handleUaRoutes } from "../ua/routes";
 import { IntentSchema, RiskSchema, WorkflowSchema } from "../workflow/types";
 import {
   workspaceDeletePath,
@@ -298,6 +299,15 @@ export function startAgentServer(options: AgentServerOptions): http.Server {
 
     if (
       await handleLangflowRoutes(req, res, pathname ?? "", req.method ?? "GET", getWorkspaceRoot)
+    ) {
+      return;
+    }
+
+    if (
+      await handleUaRoutes(req, res, pathname ?? "", req.method ?? "GET", {
+        getApiKey,
+        getWorkspaceRoot,
+      })
     ) {
       return;
     }
