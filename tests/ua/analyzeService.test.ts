@@ -124,6 +124,31 @@ describe("AnalyzeService", () => {
     expect(seen[1]).toBeNull();
   });
 
+  it("preserves previous graph when cancelled after runner completes", async () => {
+    const previous = await loadFixture();
+    await writeGraph(tmp, previous);
+
+    let releaseRunner!: () => void;
+    const runnerGate = new Promise<void>((resolve) => {
+      releaseRunner = resolve;
+    });
+
+    const runner: AnalyzeGraphRunner = async () => {
+      await runnerGate;
+      return makeGraph("should-not-write");
+    };
+    const service = new AnalyzeService(runner);
+
+    const pending = service.start(tmp);
+    await Promise.resolve();
+    releaseRunner();
+    service.cancel(tmp);
+
+    await expect(pending).rejects.toThrow(/abort/i);
+    expect(await readGraph(tmp)).toEqual(previous);
+    expect(service.isBusy(tmp)).toBe(false);
+  });
+
   it("cancels via AbortSignal and preserves previous graph", async () => {
     const previous = await loadFixture();
     await writeGraph(tmp, previous);

@@ -106,6 +106,10 @@ export class AnalyzeService {
       signal: controller.signal,
     });
 
+    if (controller.signal.aborted) {
+      throw new Error("Analyze aborted");
+    }
+
     onProgress({ phase: "write", message: "Writing knowledge graph" });
     await writeGraph(projectRoot, graph);
     return graph;
