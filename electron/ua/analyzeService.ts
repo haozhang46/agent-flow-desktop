@@ -146,12 +146,16 @@ export class AnalyzeService {
     for (const rootId of selectedRootIds) {
       const root = resolvedById.get(rootId);
       if (!root) {
-        errors.push(`unknown root id: ${rootId}`);
+        const message = `unknown root id: ${rootId}`;
+        errors.push(message);
+        onProgress({ phase: "scan", message, rootId });
         continue;
       }
 
       if (!(await isDirectory(root.absolutePath))) {
-        errors.push(`root path missing: ${rootId} (${root.path})`);
+        const message = `root path missing: ${rootId} (${root.path})`;
+        errors.push(message);
+        onProgress({ phase: "scan", message, rootId });
         continue;
       }
 
@@ -177,8 +181,10 @@ export class AnalyzeService {
         });
         successfulRootIds.push(root.id);
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        errors.push(`inventory failed for ${rootId}: ${message}`);
+        const detail = err instanceof Error ? err.message : String(err);
+        const message = `inventory failed for ${rootId}: ${detail}`;
+        errors.push(message);
+        onProgress({ phase: "scan", message, rootId });
       }
     }
 

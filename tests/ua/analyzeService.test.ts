@@ -142,6 +142,40 @@ describe("AnalyzeService", () => {
     ).rejects.toThrow();
   });
 
+  it("emits scan progress for skipped missing root when another succeeds", async () => {
+    const webDir = path.join(tmp, "web");
+    await fs.mkdir(webDir);
+    await fs.writeFile(path.join(webDir, "app.ts"), "export {};\n");
+
+    await saveWorkspace(tmp, {
+      version: 1,
+      name: "plat",
+      roots: [
+        { id: "web", path: "web", label: "Web" },
+        { id: "ghost", path: "does-not-exist", label: "Ghost" },
+      ],
+    });
+
+    const events: AnalyzeProgress[] = [];
+    const runner: AnalyzeGraphRunner = async () =>
+      makeGraph("partial", {
+        roots: [
+          { id: "web", label: "Web", path: "web", gitCommitHash: null },
+        ],
+      });
+    const service = new AnalyzeService(runner);
+    service.onProgress(tmp, (p) => events.push(p));
+
+    await service.start(tmp, { rootIds: ["web", "ghost"] });
+
+    const skipped = events.find(
+      (e) => e.rootId === "ghost" && e.phase === "scan",
+    );
+    expect(skipped).toBeDefined();
+    expect(skipped!.message).toMatch(/ghost/i);
+    expect(skipped!.message).toMatch(/missing/i);
+  });
+
   it("fails without write when all selected root paths are missing", async () => {
     await saveWorkspace(tmp, {
       version: 1,
