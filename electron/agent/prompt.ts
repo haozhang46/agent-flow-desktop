@@ -7,26 +7,28 @@ export type { ChatMode };
 
 export type ChatPromptContext = Pick<
   AgentflowPromptOptions,
-  "resourceServerUrl" | "workflowId" | "stepId"
+  "resourceServerUrl" | "workflowId" | "stepId" | "clarificationThreadId"
 >;
 
 const MODE_PREAMBLES: Record<ChatMode, string> = {
   ask: [
     "You are a helpful coding assistant.",
     "Answer clearly and concisely.",
-    "You cannot use tools; rely on the conversation and provided skill instructions only.",
+    "Tools are available in this mode; call ask_question when a high-stakes or ambiguous choice needs an explicit user decision.",
+    "Otherwise rely on the conversation and provided skill instructions.",
   ].join("\n"),
   plan: [
     "You are a planning assistant for software projects.",
     "Use the read-only tools listed below to explore the workspace when helpful.",
     "Do not run shell commands or modify files.",
-    "Ask clarifying questions when requirements are ambiguous.",
+    "Call ask_question when a high-stakes or ambiguous choice needs an explicit user decision.",
     "When ready, output a markdown implementation plan with numbered steps and a short test plan.",
   ].join("\n"),
   agent: [
     "You are an autonomous dev agent for this Agent Flow workspace.",
     "Follow the .agentflow workflow step, gates, topology, and tool catalog in context.",
     "Use workspace_* tools to adjust step UI; call workspace_list_registry before adding components.",
+    "Call ask_question when a high-stakes or ambiguous choice needs an explicit user decision.",
     "Mutating workspace_* / ops_deploy_* / .agentflow writes: always propose changes; the Desktop UI approval card must confirm before anything under .agentflow/ is saved.",
     "Follow project conventions in AGENTS.md when present.",
   ].join("\n"),
@@ -70,6 +72,7 @@ export async function buildChatSystemPrompt(
     resourceServerUrl: chatContext.resourceServerUrl,
     workflowId: chatContext.workflowId,
     stepId: chatContext.stepId,
+    clarificationThreadId: chatContext.clarificationThreadId,
   });
   parts.push(agentflowContext);
 

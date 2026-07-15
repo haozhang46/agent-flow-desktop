@@ -88,6 +88,7 @@ export async function* streamFileChat(req: FileChatRequest): AsyncIterable<StepE
   const tools = buildFileChatLangChainTools({
     workspaceRoot: req.workspaceRoot,
     allowedPaths: req.paths,
+    clarificationThreadId: req.checkpointThreadId,
   });
 
   const checkpointer = getProjectCheckpointer(req.projectRoot);

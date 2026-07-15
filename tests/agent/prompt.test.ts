@@ -4,7 +4,8 @@ import { buildChatSystemPrompt } from "../../electron/agent/prompt";
 describe("buildChatSystemPrompt", () => {
   it("includes ask preamble", async () => {
     const prompt = await buildChatSystemPrompt("ask", "/tmp/project", []);
-    expect(prompt).toContain("cannot use tools");
+    expect(prompt).toContain("ask_question");
+    expect(prompt).toContain("Tools are available");
   });
 
   it("includes plan read-only guidance", async () => {

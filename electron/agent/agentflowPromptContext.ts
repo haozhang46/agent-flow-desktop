@@ -19,6 +19,8 @@ import {
   buildReadOnlyDesktopTools,
   type AgentToolContext,
 } from "./tools";
+import { buildAskQuestionTool } from "./askQuestionTool";
+import { clarificationService } from "./clarificationService";
 
 export type ChatMode = "ask" | "plan" | "agent";
 
@@ -28,6 +30,8 @@ export type AgentflowPromptOptions = {
   resourceServerUrl?: string | null;
   workflowId?: string;
   stepId?: string;
+  /** When set, mounts ask_question closed over this thread id. */
+  clarificationThreadId?: string;
 };
 
 function toolContext(options: AgentflowPromptOptions): AgentToolContext {
@@ -39,11 +43,25 @@ function toolContext(options: AgentflowPromptOptions): AgentToolContext {
   };
 }
 
+function maybeAskQuestionTool(
+  clarificationThreadId: string | undefined,
+): StructuredToolInterface[] {
+  if (!clarificationThreadId) return [];
+  return [
+    buildAskQuestionTool({
+      threadId: clarificationThreadId,
+      service: clarificationService,
+    }),
+  ];
+}
+
 export function getToolsForMode(options: AgentflowPromptOptions): StructuredToolInterface[] {
   const ctx = toolContext(options);
-  if (options.mode === "ask") return [];
-  if (options.mode === "plan") return buildReadOnlyDesktopTools(ctx);
-  return buildDesktopLangChainTools(ctx);
+  const askTools = maybeAskQuestionTool(options.clarificationThreadId);
+
+  if (options.mode === "ask") return askTools;
+  if (options.mode === "plan") return [...buildReadOnlyDesktopTools(ctx), ...askTools];
+  return [...buildDesktopLangChainTools(ctx), ...askTools];
 }
 
 export function formatToolsCatalog(tools: StructuredToolInterface[]): string {
