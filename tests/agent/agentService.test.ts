@@ -78,7 +78,7 @@ describe("AgentService.resolveCheckpointThreadId", () => {
     expect(getToolsForMode).toHaveBeenCalledWith(
       expect.objectContaining({
         mode: "ask",
-        clarificationThreadId: "t-clarify",
+        clarificationThreadId: "ask:t-clarify",
       }),
     );
   });

@@ -3,12 +3,21 @@ import { ChatOpenAI } from "@langchain/openai";
 import type { SqliteSaver } from "@langchain/langgraph-checkpoint-sqlite";
 import { getProjectCheckpointer } from "../chatMemory/checkpointer";
 import { getToolsForMode } from "./agentflowPromptContext";
+import { clarificationService } from "./clarificationService";
+import type { ClarificationAnswer } from "./clarificationTypes";
 import { buildChatSystemPrompt, buildStepChatSystemPrompt, type ChatMode } from "./prompt";
 import { getRecursionLimit } from "./recursionLimit";
 import { buildStreamingReactAgent } from "./reactGraph";
 import { streamChunkText } from "./streamChunk";
-import { streamCompiledAgent } from "./streamAgentGraph";
+import {
+  buildResumeCommand,
+  ClarificationResumeError,
+  prepareResume,
+  streamCompiledAgent,
+  type AgentGraphStreamEvent,
+} from "./streamAgentGraph";
 
+export { ClarificationResumeError };
 const DEEPSEEK_BASE_URL = "https://api.deepseek.com/v1";
 const DEEPSEEK_MODEL = "deepseek-v4-pro";
 const DEEPSEEK_REASONING_EFFORT = "max";
@@ -110,31 +119,26 @@ export class AgentService {
     });
   }
 
-  private resolveCheckpointThreadId(threadId: string, mode: ChatMode): string {
+  resolveCheckpointThreadId(threadId: string, mode: ChatMode): string {
     if (threadId.includes(":")) {
       return threadId;
     }
     return `${mode}:${threadId}`;
   }
 
-  async *streamEvents(
-    threadId: string,
-    message: string,
+  private async buildSystemPrompt(
+    mode: ChatMode,
+    clarificationThreadId: string,
     options: ChatStreamOptions,
-  ): AsyncGenerator<{ event: string; data?: Record<string, unknown>; name?: string; run_id?: string }> {
-    const mode = options.mode;
-    const agent = this.buildAgentForStream(mode, threadId, options);
-
-    // 根据是否有 step context 选择 system prompt 构建方式
-    let systemPrompt: string;
+  ): Promise<string> {
     const chatContext = {
       resourceServerUrl: this.config!.resourceServerUrl,
       workflowId: options.workflowId,
       stepId: options.stepId,
-      clarificationThreadId: threadId,
+      clarificationThreadId,
     };
     if (options.stepId && options.workflowId) {
-      systemPrompt = await buildStepChatSystemPrompt(
+      return buildStepChatSystemPrompt(
         mode,
         this.config!.workspaceRoot,
         options.stepId,
@@ -142,14 +146,26 @@ export class AgentService {
         options.skills ?? [],
         chatContext,
       );
-    } else {
-      systemPrompt = await buildChatSystemPrompt(
-        mode,
-        this.config!.workspaceRoot,
-        options.skills ?? [],
-        chatContext,
-      );
     }
+    return buildChatSystemPrompt(
+      mode,
+      this.config!.workspaceRoot,
+      options.skills ?? [],
+      chatContext,
+    );
+  }
+
+  async *streamEvents(
+    threadId: string,
+    message: string,
+    options: ChatStreamOptions,
+  ): AsyncGenerator<AgentGraphStreamEvent> {
+    const mode = options.mode;
+    const checkpointThreadId = this.resolveCheckpointThreadId(threadId, mode);
+    clarificationService.cancelThread(checkpointThreadId);
+
+    const agent = this.buildAgentForStream(mode, checkpointThreadId, options);
+    const systemPrompt = await this.buildSystemPrompt(mode, checkpointThreadId, options);
 
     const input = {
       messages: [
@@ -158,21 +174,72 @@ export class AgentService {
     };
 
     const config = {
-      configurable: { thread_id: this.resolveCheckpointThreadId(threadId, mode) },
+      configurable: { thread_id: checkpointThreadId },
       recursionLimit: getRecursionLimit(),
     };
 
     let assistantText = "";
+    let awaitingClarification = false;
 
     for await (const event of streamCompiledAgent(agent, input, config)) {
       yield event;
+      if (event.event === "awaiting_clarification") {
+        awaitingClarification = true;
+      }
       if (event.event === "on_chat_model_stream") {
         const chunk = event.data?.chunk as { content?: unknown } | undefined;
         assistantText += streamChunkText(chunk?.content);
       }
     }
 
-    if (mode === "plan" && assistantText.trim()) {
+    if (!awaitingClarification && mode === "plan" && assistantText.trim()) {
+      yield { event: "plan_ready", data: { content: assistantText.trim() } };
+    }
+  }
+
+  async *resumeClarification(
+    threadId: string,
+    clarificationId: string,
+    answer: ClarificationAnswer,
+    options: ChatStreamOptions,
+  ): AsyncGenerator<AgentGraphStreamEvent> {
+    const mode = options.mode;
+    const checkpointThreadId = this.resolveCheckpointThreadId(threadId, mode);
+    const prepared = prepareResume(
+      clarificationService,
+      checkpointThreadId,
+      clarificationId,
+      answer,
+    );
+    if (!prepared.ok) {
+      throw new ClarificationResumeError(prepared.status, prepared.detail);
+    }
+
+    const agent = this.buildAgentForStream(mode, checkpointThreadId, options);
+    const config = {
+      configurable: { thread_id: checkpointThreadId },
+      recursionLimit: getRecursionLimit(),
+    };
+
+    let assistantText = "";
+    let awaitingClarification = false;
+
+    for await (const event of streamCompiledAgent(
+      agent,
+      buildResumeCommand(prepared.serialized),
+      config,
+    )) {
+      yield event;
+      if (event.event === "awaiting_clarification") {
+        awaitingClarification = true;
+      }
+      if (event.event === "on_chat_model_stream") {
+        const chunk = event.data?.chunk as { content?: unknown } | undefined;
+        assistantText += streamChunkText(chunk?.content);
+      }
+    }
+
+    if (!awaitingClarification && mode === "plan" && assistantText.trim()) {
       yield { event: "plan_ready", data: { content: assistantText.trim() } };
     }
   }

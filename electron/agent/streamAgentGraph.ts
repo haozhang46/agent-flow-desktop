@@ -1,5 +1,21 @@
 import { type BaseMessage } from "@langchain/core/messages";
-import type { CompiledStateGraph } from "@langchain/langgraph";
+import {
+  Command,
+  isGraphInterrupt,
+  type CompiledStateGraph,
+  type Interrupt,
+} from "@langchain/langgraph";
+
+/** LangGraph reserved interrupt channel (not always re-exported from package root). */
+const INTERRUPT = "__interrupt__";
+import {
+  clarificationService as defaultClarificationService,
+  type ClarificationService,
+} from "./clarificationService";
+import type {
+  ClarificationAnswer,
+  PendingClarification,
+} from "./clarificationTypes";
 import { streamChunkText } from "./streamChunk";
 
 export type AgentGraphStreamEvent = {
@@ -11,57 +27,206 @@ export type AgentGraphStreamEvent = {
 
 type MessagesState = { messages: BaseMessage[] };
 
+export type StreamCompiledAgentConfig = Record<string, unknown> & {
+  configurable?: { thread_id?: string; [key: string]: unknown };
+  clarificationService?: ClarificationService;
+};
+
+export type PrepareResumeResult =
+  | { ok: true; serialized: string; pending: PendingClarification }
+  | { ok: false; status: 400 | 404 | 409; detail: string };
+
+export function clarificationEventFromPending(
+  threadId: string,
+  pending: PendingClarification,
+): { event: "clarification"; data: Record<string, unknown> } {
+  return {
+    event: "clarification",
+    data: {
+      clarification_id: pending.clarificationId,
+      thread_id: threadId,
+      question: pending.question,
+      options: pending.options,
+      allow_multiple: pending.allow_multiple,
+      allow_free_text: pending.allow_free_text,
+      status: "pending",
+    },
+  };
+}
+
+export function prepareResume(
+  service: ClarificationService,
+  threadId: string,
+  clarificationId: string,
+  answer: ClarificationAnswer,
+): PrepareResumeResult {
+  const pending = service.getPending(threadId, clarificationId);
+  if (!pending || pending.status === "cancelled") {
+    return { ok: false, status: 404, detail: "Clarification not found" };
+  }
+  if (pending.status === "answered") {
+    return { ok: false, status: 409, detail: "Clarification already answered" };
+  }
+
+  const validation = service.validateAnswer(pending, answer);
+  if (!validation.ok) {
+    return { ok: false, status: validation.status, detail: validation.detail };
+  }
+
+  service.markAnswered(threadId, clarificationId);
+  const serialized = service.serializeAnswerForTool(pending, answer);
+  return { ok: true, serialized, pending };
+}
+
+function resolvePendingFromInterrupts(
+  threadId: string,
+  interrupts: Interrupt[],
+  service: ClarificationService,
+): PendingClarification | undefined {
+  const fromService = service.getPendingForThread(threadId);
+  if (fromService) return fromService;
+
+  for (const item of interrupts) {
+    const value = item?.value;
+    if (!value || typeof value !== "object") continue;
+    const clarificationId = (value as { clarification_id?: unknown }).clarification_id;
+    if (typeof clarificationId !== "string") continue;
+    const existing = service.getPending(threadId, clarificationId);
+    if (existing) return existing;
+
+    const question = (value as { question?: unknown }).question;
+    const options = (value as { options?: unknown }).options;
+    if (typeof question !== "string" || !Array.isArray(options)) continue;
+
+    return {
+      threadId,
+      clarificationId,
+      status: "pending",
+      question,
+      options: options as PendingClarification["options"],
+      allow_multiple: Boolean((value as { allow_multiple?: unknown }).allow_multiple),
+      allow_free_text:
+        (value as { allow_free_text?: unknown }).allow_free_text !== false,
+    };
+  }
+  return undefined;
+}
+
+function interruptsFromUpdate(payload: unknown): Interrupt[] | null {
+  if (!payload || typeof payload !== "object") return null;
+  if (!(INTERRUPT in payload)) return null;
+  const raw = (payload as Record<string, unknown>)[INTERRUPT];
+  return Array.isArray(raw) ? (raw as Interrupt[]) : null;
+}
+
+function* emitClarificationFromInterrupts(
+  threadId: string,
+  interrupts: Interrupt[],
+  service: ClarificationService,
+): Generator<AgentGraphStreamEvent> {
+  const pending = resolvePendingFromInterrupts(threadId, interrupts, service);
+  if (!pending) return;
+  yield clarificationEventFromPending(threadId, pending);
+  yield { event: "awaiting_clarification" };
+}
+
 export async function* streamCompiledAgent(
   agent: CompiledStateGraph<MessagesState, Partial<MessagesState>>,
-  input: { messages: BaseMessage[] },
-  config: Record<string, unknown>,
+  input: { messages: BaseMessage[] } | Command,
+  config: StreamCompiledAgentConfig,
 ): AsyncGenerator<AgentGraphStreamEvent> {
-  const stream = await agent.stream(input, {
-    ...config,
-    streamMode: ["custom", "updates"],
-  });
+  const threadId =
+    typeof config.configurable?.thread_id === "string"
+      ? config.configurable.thread_id
+      : "";
+  const service = config.clarificationService ?? defaultClarificationService;
+
+  const { clarificationService: _omit, ...streamConfig } = config;
+
+  let stream: AsyncIterable<unknown>;
+  try {
+    stream = await agent.stream(input as { messages: BaseMessage[] }, {
+      ...streamConfig,
+      streamMode: ["custom", "updates"],
+    });
+  } catch (err) {
+    if (isGraphInterrupt(err) && threadId) {
+      yield* emitClarificationFromInterrupts(threadId, err.interrupts ?? [], service);
+      return;
+    }
+    throw err;
+  }
 
   const seenToolStarts = new Set<string>();
 
-  for await (const raw of stream) {
-    if (!Array.isArray(raw) || raw.length !== 2) continue;
-    const [mode, payload] = raw as [string, unknown];
+  try {
+    for await (const raw of stream) {
+      if (!Array.isArray(raw) || raw.length !== 2) continue;
+      const [mode, payload] = raw as [string, unknown];
 
-    if (mode === "custom") {
-      const text =
-        typeof payload === "string" ? payload : streamChunkText(payload);
-      if (text) {
-        yield { event: "on_chat_model_stream", data: { chunk: { content: text } } };
+      if (mode === "custom") {
+        const text =
+          typeof payload === "string" ? payload : streamChunkText(payload);
+        if (text) {
+          yield { event: "on_chat_model_stream", data: { chunk: { content: text } } };
+        }
+        continue;
       }
-      continue;
-    }
 
-    if (mode !== "updates" || !payload || typeof payload !== "object") continue;
-    const update = payload as Record<string, { messages?: BaseMessage[] } | undefined>;
+      if (mode !== "updates" || !payload || typeof payload !== "object") continue;
 
-    const agentMessages = update.agent?.messages ?? [];
-    for (const msg of agentMessages) {
-      const toolCalls =
-        "tool_calls" in msg && Array.isArray(msg.tool_calls)
-          ? (msg.tool_calls as Array<{ id?: string; name?: string }>)
-          : [];
-      for (const call of toolCalls) {
-        const runId = call.id ?? `${call.name}:${seenToolStarts.size}`;
-        if (seenToolStarts.has(runId)) continue;
-        seenToolStarts.add(runId);
-        yield { event: "on_tool_start", name: call.name, run_id: runId };
+      const interrupts = interruptsFromUpdate(payload);
+      if (interrupts && threadId) {
+        yield* emitClarificationFromInterrupts(threadId, interrupts, service);
+        return;
+      }
+
+      const update = payload as Record<string, { messages?: BaseMessage[] } | undefined>;
+
+      const agentMessages = update.agent?.messages ?? [];
+      for (const msg of agentMessages) {
+        const toolCalls =
+          "tool_calls" in msg && Array.isArray(msg.tool_calls)
+            ? (msg.tool_calls as Array<{ id?: string; name?: string }>)
+            : [];
+        for (const call of toolCalls) {
+          const runId = call.id ?? `${call.name}:${seenToolStarts.size}`;
+          if (seenToolStarts.has(runId)) continue;
+          seenToolStarts.add(runId);
+          yield { event: "on_tool_start", name: call.name, run_id: runId };
+        }
+      }
+
+      const toolMessages = update.tools?.messages ?? [];
+      for (const msg of toolMessages) {
+        if (!("tool_call_id" in msg)) continue;
+        yield {
+          event: "on_tool_end",
+          name: msg.name ?? "",
+          run_id: msg.tool_call_id ?? "",
+          data: { output: msg.content },
+        };
       }
     }
-
-    const toolMessages = update.tools?.messages ?? [];
-    for (const msg of toolMessages) {
-      if (!("tool_call_id" in msg)) continue;
-      yield {
-        event: "on_tool_end",
-        name: msg.name ?? "",
-        run_id: msg.tool_call_id ?? "",
-        data: { output: msg.content },
-      };
+  } catch (err) {
+    if (isGraphInterrupt(err) && threadId) {
+      yield* emitClarificationFromInterrupts(threadId, err.interrupts ?? [], service);
+      return;
     }
+    throw err;
+  }
+}
+
+export function buildResumeCommand(serialized: string): Command {
+  return new Command({ resume: serialized });
+}
+
+export class ClarificationResumeError extends Error {
+  readonly status: 400 | 404 | 409;
+
+  constructor(status: 400 | 404 | 409, detail: string) {
+    super(detail);
+    this.name = "ClarificationResumeError";
+    this.status = status;
   }
 }
