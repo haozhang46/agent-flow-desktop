@@ -28,7 +28,8 @@ The JSON must match this WorkflowDraft shape:
         "prompt_template": "prompts/step-id.md",
         "outputs": ["path/or/dir/"],
         "gates": [],
-        "advance": "manual"
+        "advance": "manual",
+        "rootId": "optional root id when step work targets a source repo"
       }
     ],
     "edges": [{ "from": "step-a", "to": "step-b" }],
@@ -45,6 +46,8 @@ The JSON must match this WorkflowDraft shape:
     "source": "ua-graph",
     "analyzedAt": "ISO-8601 string or null",
     "gitCommitHash": "string or null",
+    "gitCommitHashes": { "root-id": "string or null" },
+    "rootIds": ["root-id"],
     "goal": "string or null"
   }
 }
@@ -55,6 +58,14 @@ The JSON must match this WorkflowDraft shape:
 - Every step **must** set `prompt_template` to exactly `prompts/<step.id>.md`.
 - Every such path **must** appear as a key in `prompts` with a non-empty markdown body.
 - Do not reuse template step ids unless they fit the project; invent practical step ids for this project.
+
+## Multi-root workspaces
+
+The curated subgraph may include nodes from one or more roots (namespaced ids like `root:api/file:...`).
+
+- Set `steps[].rootId` when a step edits or validates code in a specific source repo.
+- Omit `rootId` for workspace-level orchestration (docs, planning across repos, coordination).
+- `meta.rootIds` and `meta.gitCommitHashes` are filled by the service from the user's selection; you may omit them in the draft body.
 
 ## Design guidance
 

@@ -21,7 +21,15 @@ The JSON must match this KnowledgeGraph shape:
     "languages": ["string"],
     "frameworks": ["string"],
     "analyzedAt": "ISO-8601 string",
-    "gitCommitHash": "string or null"
+    "gitCommitHash": "string or null",
+    "roots": [
+      {
+        "id": "string",
+        "label": "string",
+        "path": "string",
+        "gitCommitHash": "string or null"
+      }
+    ]
   },
   "nodes": [
     {
@@ -31,7 +39,8 @@ The JSON must match this KnowledgeGraph shape:
       "filePath": "optional string",
       "summary": "string",
       "tags": ["string"],
-      "complexity": "low | medium | high"
+      "complexity": "low | medium | high",
+      "rootId": "string"
     }
   ],
   "edges": [
@@ -63,10 +72,21 @@ The JSON must match this KnowledgeGraph shape:
 }
 ```
 
+## Multi-root workspace
+
+The user prompt includes `selectedRootIds`, `rootMetas`, and a flat `inventories` list. Each inventory entry has `{ rootId, path, bytes }` where `path` is relative to that root (not the workspace folder).
+
+- Emit a graph covering **only** the selected roots.
+- Fill `project.roots` with metadata for each selected root (`id`, `label`, `path`, `gitCommitHash` from `rootMetas`).
+- Every file/module node **must** set `rootId` to the source root id.
+- Namespace node ids as `root:{rootId}/...` (e.g. `root:api/file:src/main.ts`).
+- `filePath` is relative to that root, not the workspace root.
+- Single-root workspaces use the same rules; `rootId` is still required (typically `"main"`).
+
 ## Inventory paths
 
-- Use only file paths from the provided inventory (posix-relative paths).
-- Prefer node ids like `file:{path}` for file nodes.
+- Use only file paths from the provided inventory (posix-relative paths per root).
+- Prefer namespaced node ids like `root:{rootId}/file:{path}` for file nodes.
 - Do not invent paths that are not in the inventory.
 
 ## Language
