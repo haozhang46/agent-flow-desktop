@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { computed, ref, shallowRef, watch, type Component } from "vue";
+import { computed, ref, watch } from "vue";
 import type { WorkspaceComponent, WorkspaceDefinition } from "./registry";
-import { isRegisteredWidgetType, WIDGET_COMPONENTS, type PanelApi } from "./registryComponents";
-import { bindWidgetProps, type PanelRuntimeContext } from "./widgetBindProps";
+import type { PanelApi } from "./registryComponents";
+import type { PanelRuntimeContext } from "./widgetBindProps";
+import JsonWidgetHost from "./jsonWidget/JsonWidgetHost.vue";
 
 export type { PanelRuntimeContext };
 
@@ -10,27 +11,12 @@ const props = defineProps<{
   workspace: WorkspaceDefinition;
   api: PanelApi;
   runtime?: PanelRuntimeContext;
+  chatInvoke?: (message: string) => void | Promise<void>;
 }>();
 
 const activeTabId = ref("");
-const resolvedByType = shallowRef<Record<string, Component>>({});
 
 const components = computed(() => props.workspace.components);
-
-watch(
-  () => props.workspace.components.map((c) => c.type).join(","),
-  async () => {
-    const map: Record<string, Component> = {};
-    for (const comp of props.workspace.components) {
-      if (map[comp.type] || !isRegisteredWidgetType(comp.type)) continue;
-      const loader = WIDGET_COMPONENTS[comp.type];
-      const mod = await loader();
-      map[comp.type] = mod.default;
-    }
-    resolvedByType.value = map;
-  },
-  { immediate: true },
-);
 
 watch(
   () => props.workspace.components,
@@ -48,14 +34,6 @@ watch(
 
 function tabLabel(comp: WorkspaceComponent): string {
   return comp.label ?? comp.id;
-}
-
-function bindProps(comp: WorkspaceComponent): Record<string, unknown> {
-  return bindWidgetProps(comp, props.api, props.runtime, props.workspace.stepId);
-}
-
-function isUnknownType(type: string): boolean {
-  return !isRegisteredWidgetType(type);
 }
 </script>
 
@@ -92,17 +70,15 @@ function isUnknownType(type: string): boolean {
             class="flex flex-col flex-1 min-h-0 overflow-hidden"
             role="tabpanel"
           >
-            <div
-              v-if="isUnknownType(comp.type)"
-              class="m-4 rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700"
-              data-testid="unknown-widget-error"
-            >
-              Unknown widget type: {{ comp.type }}
-            </div>
-            <component
-              :is="resolvedByType[comp.type]"
-              v-else-if="resolvedByType[comp.type]"
-              v-bind="bindProps(comp)"
+            <JsonWidgetHost
+              :type="comp.type"
+              :component-id="comp.id"
+              :label="comp.label"
+              :props="comp.props"
+              :api="api"
+              :runtime="runtime"
+              :workspace-step-id="workspace.stepId"
+              :chat-invoke="chatInvoke"
             />
           </div>
         </template>
@@ -124,17 +100,15 @@ function isUnknownType(type: string): boolean {
             {{ comp.label }}
           </header>
           <div class="flex flex-col flex-1 min-h-0">
-            <div
-              v-if="isUnknownType(comp.type)"
-              class="m-4 rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700"
-              data-testid="unknown-widget-error"
-            >
-              Unknown widget type: {{ comp.type }}
-            </div>
-            <component
-              :is="resolvedByType[comp.type]"
-              v-else-if="resolvedByType[comp.type]"
-              v-bind="bindProps(comp)"
+            <JsonWidgetHost
+              :type="comp.type"
+              :component-id="comp.id"
+              :label="comp.label"
+              :props="comp.props"
+              :api="api"
+              :runtime="runtime"
+              :workspace-step-id="workspace.stepId"
+              :chat-invoke="chatInvoke"
             />
           </div>
         </section>

@@ -1,5 +1,7 @@
 import type { Component } from "vue";
+import { getBuiltinTypeDocument } from "../../shared/jsonWidget/builtinTypeDefs";
 import type { useWorkflow } from "../composables/useWorkflow";
+import { VIEW_LOADERS } from "./jsonWidget/viewRegistry";
 
 export type ChatFileAttachment = {
   path: string;
@@ -33,24 +35,9 @@ export type PanelApi = Pick<
   subscribeFileWrites?: (handler: (path: string) => void) => () => void;
 };
 
-export const WIDGET_COMPONENTS: Record<string, () => Promise<{ default: Component }>> = {
-  "markdown-doc": () => import("./widgets/MarkdownDocWidget.vue"),
-  "architecture-docs": () => import("./widgets/ArchitectureDocsWidget.vue"),
-  "code-explorer": () => import("./widgets/CodeExplorerWidget.vue"),
-  "agent-run": () => import("./widgets/AgentRunWidget.vue"),
-  "cicd-config": () => import("./widgets/CicdConfigWidget.vue"),
-  "fe-architecture-plan": () => import("./widgets/FeArchitecturePlanWidget.vue"),
-  "be-architecture-plan": () => import("./widgets/BeArchitecturePlanWidget.vue"),
-  "schema-migrations": () => import("./widgets/SchemaMigrationsWidget.vue"),
-  "topology-panel": () => import("./widgets/TopologyPanelWidget.vue"),
-  "topology-context": () => import("./widgets/TopologyContextWidget.vue"),
-  "cicd-readiness": () => import("./widgets/CicdReadinessWidget.vue"),
-  "component-splitter": () => import("./widgets/ComponentSplitterWidget.vue"),
-  "agent-rules-editor": () => import("./widgets/AgentRulesEditorWidget.vue"),
-  "style-tokens-editor": () => import("./widgets/StyleTokensEditorWidget.vue"),
-  "langflow-panel": () => import("./widgets/LangflowPanelWidget.vue"),
-};
+/** @deprecated Prefer VIEW_LOADERS from jsonWidget/viewRegistry. Compat alias of VIEW_LOADERS. */
+export const WIDGET_COMPONENTS: Record<string, () => Promise<{ default: Component }>> = VIEW_LOADERS;
 
 export function isRegisteredWidgetType(type: string): boolean {
-  return type in WIDGET_COMPONENTS;
+  return getBuiltinTypeDocument(type) != null;
 }
