@@ -22,17 +22,28 @@ const WidgetBeta = defineComponent({
   },
 });
 
-vi.mock("../../src/workspace/registryComponents", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../../src/workspace/registryComponents")>();
-  return {
-    ...actual,
-    WIDGET_COMPONENTS: {
-      alpha: async () => ({ default: WidgetAlpha }),
-      beta: async () => ({ default: WidgetBeta }),
-    },
-    isRegisteredWidgetType: (type: string) => type === "alpha" || type === "beta",
-  };
-});
+vi.mock("../../src/workspace/jsonWidget/viewRegistry", () => ({
+  VIEW_LOADERS: {
+    alpha: async () => ({ default: WidgetAlpha }),
+    beta: async () => ({ default: WidgetBeta }),
+  },
+}));
+
+vi.mock("../../shared/jsonWidget/builtinTypeDefs", () => ({
+  getBuiltinTypeDocument: (type: string) => {
+    if (type !== "alpha" && type !== "beta") return undefined;
+    return {
+      type,
+      label: type,
+      description: "",
+      category: "test",
+      defaultProps: {},
+      propsFields: [],
+      root: { type: "view", name: type, props: { $bind: "instance" } },
+    };
+  },
+  BUILTIN_TYPE_DOCUMENTS: {},
+}));
 
 const mockApi = {} as PanelApi;
 
@@ -91,7 +102,7 @@ describe("WorkflowPanelRenderer", () => {
     expect(wrapper.text()).toContain("Section Beta");
   });
 
-  it("shows inline error for unknown widget type", async () => {
+  it("shows missing-type error for unknown widget type via Host", async () => {
     const wrapper = mount(WorkflowPanelRenderer, {
       props: {
         workspace: {
@@ -105,8 +116,8 @@ describe("WorkflowPanelRenderer", () => {
     });
     await flushPromises();
 
-    const error = wrapper.find('[data-testid="unknown-widget-error"]');
+    const error = wrapper.find('[data-testid="json-widget-missing-type"]');
     expect(error.exists()).toBe(true);
-    expect(error.text()).toContain("Unknown widget type: not-real");
+    expect(error.text()).toContain("not-real");
   });
 });

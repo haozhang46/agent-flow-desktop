@@ -15,13 +15,12 @@ async function settle(): Promise<void> {
 async function waitForPreviewMount(
   wrapper: ReturnType<typeof mount>,
 ): Promise<void> {
-  for (let i = 0; i < 30; i++) {
-    await flushPromises();
-    if (wrapper.find('[data-testid="preview-mount"]').exists()) {
-      return;
-    }
-  }
-  throw new Error("preview-mount did not appear");
+  await vi.waitFor(
+    () => {
+      expect(wrapper.find('[data-testid="preview-mount"]').exists()).toBe(true);
+    },
+    { timeout: 3000, interval: 20 },
+  );
 }
 
 const mockSteps = [
@@ -335,7 +334,12 @@ describe("WorkspaceDesigner", () => {
     expect(wrapper.find('[data-testid="preview-column"]').exists()).toBe(true);
     expect(wrapper.find('[data-testid="preview-mount"]').exists()).toBe(true);
     expect(wrapper.find('[data-testid="preview-runtime-placeholder"]').exists()).toBe(false);
-    expect(wrapper.find('[data-testid="preview-column"]').text()).toContain("./");
+    await vi.waitFor(
+      () => {
+        expect(wrapper.find('[data-testid="preview-column"]').text()).toContain("./");
+      },
+      { timeout: 3000, interval: 20 },
+    );
     expect(panelApi.listWorkspace).toHaveBeenCalled();
   });
 

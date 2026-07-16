@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, shallowRef, watch, type Component } from "vue";
+import { computed, ref, watch } from "vue";
 import { useWorkspaceConfig } from "../../composables/useWorkspaceConfig";
 import {
   WORKSPACE_REGISTRY,
@@ -10,10 +10,9 @@ import {
 } from "../../workspace/registry";
 import {
   isRegisteredWidgetType,
-  WIDGET_COMPONENTS,
   type PanelApi,
 } from "../../workspace/registryComponents";
-import { bindWidgetProps } from "../../workspace/widgetBindProps";
+import JsonWidgetHost from "../../workspace/jsonWidget/JsonWidgetHost.vue";
 import WorkspacePropFields from "./WorkspacePropFields.vue";
 
 const RUNTIME_ONLY_TYPES = new Set(["agent-run", "langflow-panel"]);
@@ -63,31 +62,11 @@ const selectedEntry = computed(() =>
   selectedComponent.value ? registryEntry(selectedComponent.value.type) : undefined,
 );
 
-const previewResolved = shallowRef<Component | null>(null);
-
 const previewKey = computed(() => {
   const comp = selectedComponent.value;
   if (!comp) return "";
   return `${comp.id}-${JSON.stringify(comp.props)}`;
 });
-
-const previewBindProps = computed(() => {
-  const comp = selectedComponent.value;
-  if (!comp) return {};
-  return bindWidgetProps(comp, props.panelApi ?? ({} as PanelApi));
-});
-
-watch(
-  () => selectedComponent.value?.type,
-  async (type) => {
-    previewResolved.value = null;
-    if (!type || !isRegisteredWidgetType(type) || RUNTIME_ONLY_TYPES.has(type)) return;
-    const loader = WIDGET_COMPONENTS[type];
-    const mod = await loader();
-    previewResolved.value = mod.default;
-  },
-  { immediate: true },
-);
 
 function isUnknownType(type: string): boolean {
   return !isRegisteredWidgetType(type);
@@ -400,14 +379,21 @@ async function onSave() {
             >
               {{ runtimePlaceholderMessage(selectedComponent.type) }}
             </div>
-            <component
-              :is="previewResolved"
-              v-else-if="previewResolved"
+            <div
+              v-else
               :key="previewKey"
               data-testid="preview-mount"
               :data-preview-key="previewKey"
-              v-bind="previewBindProps"
-            />
+              class="flex flex-col flex-1 min-h-0"
+            >
+              <JsonWidgetHost
+                :type="selectedComponent.type"
+                :component-id="selectedComponent.id"
+                :label="selectedComponent.label"
+                :props="selectedComponent.props"
+                :api="panelApi ?? ({} as PanelApi)"
+              />
+            </div>
           </template>
         </section>
       </div>
