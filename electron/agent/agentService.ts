@@ -5,7 +5,16 @@ import { getProjectCheckpointer } from "../chatMemory/checkpointer";
 import { getToolsForMode } from "./agentflowPromptContext";
 import { clarificationService } from "./clarificationService";
 import type { ClarificationAnswer } from "./clarificationTypes";
-import { buildChatSystemPrompt, buildStepChatSystemPrompt, type ChatMode } from "./prompt";
+import {
+  classifyCreateComponentIntent,
+  guidanceForIntentResult,
+  type IntentRouterResult,
+} from "./intentRouter";
+import {
+  buildChatSystemPrompt,
+  buildStepChatSystemPrompt,
+  type ChatMode,
+} from "./prompt";
 import { getRecursionLimit } from "./recursionLimit";
 import { buildStreamingReactAgent } from "./reactGraph";
 import { streamChunkText } from "./streamChunk";
@@ -156,6 +165,20 @@ export class AgentService {
     );
   }
 
+  /**
+   * Phase-1 intent_router: classify before agent stream.
+   * On failure, degrade to normal agent (null → no extra guidance).
+   */
+  private async resolveCreateComponentIntent(
+    message: string,
+  ): Promise<IntentRouterResult | null> {
+    try {
+      return await classifyCreateComponentIntent(message);
+    } catch {
+      return null;
+    }
+  }
+
   async *streamEvents(
     threadId: string,
     message: string,
@@ -166,10 +189,24 @@ export class AgentService {
     clarificationService.cancelThread(checkpointThreadId);
 
     const agent = this.buildAgentForStream(mode, checkpointThreadId, options);
-    const systemPrompt = await this.buildSystemPrompt(mode, checkpointThreadId, options);
+    const baseSystemPrompt = await this.buildSystemPrompt(
+      mode,
+      checkpointThreadId,
+      options,
+    );
+    const intent = await this.resolveCreateComponentIntent(message);
+    const intentGuidance = intent ? guidanceForIntentResult(intent) : null;
+    const systemPrompt = intentGuidance
+      ? `${baseSystemPrompt}\n\n---\n\n${intentGuidance}`
+      : baseSystemPrompt;
 
     const config = {
-      configurable: { thread_id: checkpointThreadId },
+      configurable: {
+        thread_id: checkpointThreadId,
+        createTypeMode:
+          intent?.intent === "create_custom_component_type" &&
+          intent.confidence === "high",
+      },
       recursionLimit: getRecursionLimit(),
     };
 

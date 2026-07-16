@@ -243,6 +243,8 @@ export async function buildAgentflowChatContext(
       "",
       "### Workspace component registry (for workspace_* tools)",
       formatRegistryHint(),
+      "",
+      "Custom declarative types: use workspace_register_component_type after ask_question confirms scope (project|workflow|global); never write without approval. Prefer existing builtins when they fit.",
     );
   }
 

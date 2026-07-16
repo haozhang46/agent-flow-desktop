@@ -55,6 +55,11 @@ async function callModel(
   return { messages: [full ?? new AIMessage("")] };
 }
 
+/**
+ * Streaming ReAct agent (agent ↔ tools).
+ * Create-type intent routing runs before stream in AgentService
+ * (`classifyCreateComponentIntent` + system guidance); not a LangGraph node yet.
+ */
 export function buildStreamingReactAgent(params: {
   llm: BaseChatModel;
   tools: StructuredToolInterface[];

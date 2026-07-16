@@ -50,7 +50,9 @@ describe("AgentService.resolveCheckpointThreadId", () => {
     expect(streamMock).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({
-        configurable: { thread_id: "free:wf-1:thread-abc" },
+        configurable: expect.objectContaining({
+          thread_id: "free:wf-1:thread-abc",
+        }),
         streamMode: ["custom", "updates"],
       }),
     );
@@ -64,7 +66,9 @@ describe("AgentService.resolveCheckpointThreadId", () => {
     expect(streamMock).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({
-        configurable: { thread_id: "agent:uuid-only" },
+        configurable: expect.objectContaining({
+          thread_id: "agent:uuid-only",
+        }),
         streamMode: ["custom", "updates"],
       }),
     );

@@ -2,8 +2,19 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { loadSkillBodies } from "../skills/loader";
 import { buildAgentflowChatContext, type AgentflowPromptOptions, type ChatMode } from "./agentflowPromptContext";
+import {
+  CREATE_TYPE_MODE_GUIDANCE,
+  LOW_CONFIDENCE_INTENT_GUIDANCE,
+  type IntentRouterResult,
+  guidanceForIntentResult,
+} from "./intentRouter";
 
 export type { ChatMode };
+export {
+  CREATE_TYPE_MODE_GUIDANCE,
+  LOW_CONFIDENCE_INTENT_GUIDANCE,
+  guidanceForIntentResult,
+};
 
 export type ChatPromptContext = Pick<
   AgentflowPromptOptions,
@@ -105,4 +116,15 @@ export async function buildStepChatSystemPrompt(
     workflowId,
     stepId,
   });
+}
+
+/** Append intent-router guidance when create-type / low-confidence paths apply. */
+export function withIntentRouterGuidance(
+  systemPrompt: string,
+  intent: IntentRouterResult | null | undefined,
+): string {
+  if (!intent) return systemPrompt;
+  const guidance = guidanceForIntentResult(intent);
+  if (!guidance) return systemPrompt;
+  return `${systemPrompt}\n\n---\n\n${guidance}`;
 }
