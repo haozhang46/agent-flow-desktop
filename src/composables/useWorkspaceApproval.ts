@@ -27,7 +27,7 @@ async function applyComponentType(body: {
   const res = await fetch(`${await apiBase()}/v1/workspace/component-types/apply`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
+    body: JSON.stringify({ ...body, confirmed: true }),
   });
   if (!res.ok) {
     const detail = await res.text();

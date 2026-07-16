@@ -11,6 +11,24 @@ import {
 
 export type ComponentTypeScope = "project" | "workflow" | "global";
 
+/** Reject path traversal / absolute / empty workflow ids for workflow-scoped dirs. */
+export function assertSafeWorkflowId(workflowId: string): string {
+  const id = workflowId.trim();
+  if (!id) {
+    throw new Error("workflowId required for workflow scope");
+  }
+  if (
+    path.isAbsolute(id) ||
+    id.includes("..") ||
+    id.includes("/") ||
+    id.includes("\\") ||
+    id.includes("\0")
+  ) {
+    throw new Error(`Invalid workflowId: ${workflowId}`);
+  }
+  return id;
+}
+
 export function componentTypesDir(
   workspaceRoot: string,
   scope: ComponentTypeScope,
@@ -24,14 +42,16 @@ export function componentTypesDir(
   if (scope === "project") {
     return path.join(workspaceRoot, ".agentflow", "component-types");
   }
-  if (!workflowId?.trim()) throw new Error("workflowId required for workflow scope");
-  return path.join(
-    workspaceRoot,
-    ".agentflow",
-    "workflows",
-    workflowId.trim(),
-    "component-types",
-  );
+  const id = assertSafeWorkflowId(workflowId ?? "");
+  const workflowsRoot = path.resolve(workspaceRoot, ".agentflow", "workflows");
+  const resolved = path.resolve(workflowsRoot, id, "component-types");
+  const prefix = workflowsRoot.endsWith(path.sep)
+    ? workflowsRoot
+    : workflowsRoot + path.sep;
+  if (!resolved.startsWith(prefix)) {
+    throw new Error(`Invalid workflowId: ${workflowId}`);
+  }
+  return resolved;
 }
 
 function toEntry(t: CustomComponentType): WorkspaceRegistryEntry {
@@ -56,8 +76,15 @@ async function readDirTypes(dir: string): Promise<CustomComponentType[]> {
   const out: CustomComponentType[] = [];
   for (const name of names) {
     if (!name.endsWith(".json")) continue;
-    const raw = JSON.parse(await fs.readFile(path.join(dir, name), "utf8"));
-    out.push(parseCustomComponentType(raw));
+    try {
+      const raw = JSON.parse(await fs.readFile(path.join(dir, name), "utf8"));
+      out.push(parseCustomComponentType(raw));
+    } catch (err) {
+      console.warn(
+        `[componentTypeStore] skipping corrupt type file ${path.join(dir, name)}:`,
+        err instanceof Error ? err.message : err,
+      );
+    }
   }
   return out;
 }

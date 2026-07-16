@@ -6,6 +6,8 @@ import {
   saveComponentType,
   mergeWorkspaceRegistry,
   listComponentTypes,
+  componentTypesDir,
+  assertSafeWorkflowId,
 } from "../../electron/workflow/componentTypeStore";
 
 describe("componentTypeStore", () => {
@@ -71,6 +73,37 @@ describe("componentTypeStore", () => {
       workspaceRoot: root,
       userDataRoot: userData,
       scope: "global",
+      typeDef: sample,
+    });
+    const list = await listComponentTypes({
+      workspaceRoot: root,
+      userDataRoot: userData,
+    });
+    expect(list.map((t) => t.type)).toEqual(["my-checklist"]);
+  });
+
+  it("assertSafeWorkflowId / componentTypesDir reject traversal", () => {
+    expect(() => assertSafeWorkflowId("")).toThrow(/workflowId required/);
+    expect(() => assertSafeWorkflowId("../escape")).toThrow(/Invalid workflowId/);
+    expect(() => assertSafeWorkflowId("/abs")).toThrow(/Invalid workflowId/);
+    expect(() => assertSafeWorkflowId("a/b")).toThrow(/Invalid workflowId/);
+    expect(() =>
+      componentTypesDir(root, "workflow", ".."),
+    ).toThrow(/Invalid workflowId/);
+    const dir = componentTypesDir(root, "workflow", "wf1");
+    expect(dir).toBe(
+      path.join(root, ".agentflow", "workflows", "wf1", "component-types"),
+    );
+  });
+
+  it("listComponentTypes skips corrupt type JSON files", async () => {
+    const dir = path.join(root, ".agentflow", "component-types");
+    await fs.mkdir(dir, { recursive: true });
+    await fs.writeFile(path.join(dir, "broken.json"), "{not-json", "utf8");
+    await saveComponentType({
+      workspaceRoot: root,
+      userDataRoot: userData,
+      scope: "project",
       typeDef: sample,
     });
     const list = await listComponentTypes({

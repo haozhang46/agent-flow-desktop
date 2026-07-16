@@ -107,9 +107,17 @@ async function resolveTarget(
   return { workflowId, stepId, filePath };
 }
 
-async function tryLoadWorkspace(filePath: string): Promise<WorkspaceDefinition | null> {
+async function tryLoadWorkspace(
+  filePath: string,
+  ctx: WorkspaceToolContext,
+  workflowId: string,
+): Promise<WorkspaceDefinition | null> {
   try {
-    return await loadWorkspace(filePath);
+    return await loadWorkspace(filePath, {
+      workspaceRoot: ctx.workspaceRoot,
+      userDataRoot: ctx.userDataRoot,
+      workflowId,
+    });
   } catch (err) {
     if (isEnoent(err)) return null;
     throw err;
@@ -158,7 +166,7 @@ export function buildWorkspaceLangChainTools(ctx: WorkspaceToolContext) {
           workflow_id,
           step_id,
         });
-        const workspace = await tryLoadWorkspace(filePath);
+        const workspace = await tryLoadWorkspace(filePath, ctx, workflowId);
         if (!workspace) {
           return `No workspace file for workflow "${workflowId}" step "${stepId}". Use workspace_add_component to create one.`;
         }
@@ -283,7 +291,7 @@ export function buildWorkspaceLangChainTools(ctx: WorkspaceToolContext) {
           return `Unknown component type "${type}". Valid types: ${valid}. Call workspace_list_registry first.`;
         }
 
-        const before = await tryLoadWorkspace(filePath);
+        const before = await tryLoadWorkspace(filePath, ctx, workflowId);
         const workspace = before ?? emptyWorkspace(stepId);
         const id = component_id?.trim() || uniqueComponentId(type, workspace.components);
         if (workspace.components.some((c) => c.id === id)) {
@@ -319,7 +327,7 @@ export function buildWorkspaceLangChainTools(ctx: WorkspaceToolContext) {
     tool(
       async ({ workflow_id, step_id, component_id, label, props, confirm: _confirm }) => {
         const { workflowId, stepId, filePath } = await resolveTarget(ctx, { workflow_id, step_id });
-        const before = await tryLoadWorkspace(filePath);
+        const before = await tryLoadWorkspace(filePath, ctx, workflowId);
         if (!before) {
           return `No workspace file for step "${stepId}".`;
         }
@@ -350,7 +358,7 @@ export function buildWorkspaceLangChainTools(ctx: WorkspaceToolContext) {
     tool(
       async ({ workflow_id, step_id, component_id, confirm: _confirm }) => {
         const { workflowId, stepId, filePath } = await resolveTarget(ctx, { workflow_id, step_id });
-        const before = await tryLoadWorkspace(filePath);
+        const before = await tryLoadWorkspace(filePath, ctx, workflowId);
         if (!before) {
           return `No workspace file for step "${stepId}".`;
         }
@@ -377,7 +385,7 @@ export function buildWorkspaceLangChainTools(ctx: WorkspaceToolContext) {
     tool(
       async ({ workflow_id, step_id, component_ids, confirm: _confirm }) => {
         const { workflowId, stepId, filePath } = await resolveTarget(ctx, { workflow_id, step_id });
-        const before = await tryLoadWorkspace(filePath);
+        const before = await tryLoadWorkspace(filePath, ctx, workflowId);
         if (!before) {
           return `No workspace file for step "${stepId}".`;
         }
@@ -409,7 +417,7 @@ export function buildWorkspaceLangChainTools(ctx: WorkspaceToolContext) {
     tool(
       async ({ workflow_id, step_id, layout, confirm: _confirm }) => {
         const { workflowId, stepId, filePath } = await resolveTarget(ctx, { workflow_id, step_id });
-        const before = await tryLoadWorkspace(filePath);
+        const before = await tryLoadWorkspace(filePath, ctx, workflowId);
         const workspace = before ?? emptyWorkspace(stepId);
         workspace.layout = layout;
         return finishMutation(ctx, workflowId, stepId, filePath, before, workspace);

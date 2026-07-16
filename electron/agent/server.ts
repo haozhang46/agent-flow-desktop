@@ -692,7 +692,11 @@ export function startAgentServer(options: AgentServerOptions): http.Server {
           const workspaceRoot = getWorkspaceRoot();
           const isLegacy = await resolveWorkflowLegacy(workspaceRoot, workflowId);
           const filePath = workspacePath(workspaceRoot, workflowId, stepId, isLegacy);
-          const workspace = await loadWorkspace(filePath);
+          const workspace = await loadWorkspace(filePath, {
+            workspaceRoot,
+            userDataRoot: resolveUserDataRoot(),
+            workflowId,
+          });
           jsonResponse(res, 200, workspace);
         } catch (err) {
           if (isWorkflowNotFound(err)) {
@@ -730,7 +734,11 @@ export function startAgentServer(options: AgentServerOptions): http.Server {
           const workspaceRoot = getWorkspaceRoot();
           const isLegacy = await resolveWorkflowLegacy(workspaceRoot, workflowId);
           const filePath = workspacePath(workspaceRoot, workflowId, stepId, isLegacy);
-          const workspace = await saveWorkspace(filePath, payload, stepId);
+          const workspace = await saveWorkspace(filePath, payload, stepId, {
+            workspaceRoot,
+            userDataRoot: resolveUserDataRoot(),
+            workflowId,
+          });
           jsonResponse(res, 200, workspace);
         } catch (err) {
           if (isWorkflowNotFound(err)) {
@@ -971,6 +979,7 @@ export function startAgentServer(options: AgentServerOptions): http.Server {
         scope?: string;
         workflowId?: string;
         typeDef?: unknown;
+        confirmed?: boolean;
       };
       try {
         payload = JSON.parse(await readBody(req));
@@ -991,6 +1000,7 @@ export function startAgentServer(options: AgentServerOptions): http.Server {
         return;
       }
       try {
+        requireAgentflowMutation(payload.confirmed);
         const filePath = await saveComponentType({
           workspaceRoot: getWorkspaceRoot(),
           userDataRoot: resolveUserDataRoot(),
@@ -1000,6 +1010,10 @@ export function startAgentServer(options: AgentServerOptions): http.Server {
         });
         jsonResponse(res, 200, { ok: true, path: filePath });
       } catch (err) {
+        if (err instanceof AgentflowWriteConfirmationRequiredError) {
+          jsonResponse(res, 400, { detail: err.message });
+          return;
+        }
         const message = err instanceof Error ? err.message : String(err);
         jsonResponse(res, 400, { detail: message });
       }

@@ -119,7 +119,7 @@ describe("workspace API routes", () => {
     );
   });
 
-  it("POST /v1/workspace/component-types/apply saves project type", async () => {
+  it("POST /v1/workspace/component-types/apply requires confirmed", async () => {
     const typeDef = {
       type: "my-checklist",
       label: "Checklist",
@@ -128,11 +128,20 @@ describe("workspace API routes", () => {
       defaultProps: {},
       propsFields: [],
     };
-    const res = await request(
+    const denied = await request(
       port,
       "POST",
       "/v1/workspace/component-types/apply",
       JSON.stringify({ scope: "project", typeDef }),
+    );
+    expect(denied.status).toBe(400);
+    expect(denied.body).toMatch(/agentflow_write_requires_confirmation/);
+
+    const res = await request(
+      port,
+      "POST",
+      "/v1/workspace/component-types/apply",
+      JSON.stringify({ scope: "project", typeDef, confirmed: true }),
     );
     expect(res.status).toBe(200);
     const body = JSON.parse(res.body) as { ok: boolean; path: string };
@@ -140,6 +149,48 @@ describe("workspace API routes", () => {
     expect(body.path).toContain(`${path.sep}.agentflow${path.sep}component-types${path.sep}my-checklist.json`);
     const saved = JSON.parse(await fs.readFile(body.path, "utf8")) as { type: string };
     expect(saved.type).toBe("my-checklist");
+  });
+
+  it("PUT workspace with custom component type succeeds after apply", async () => {
+    const typeDef = {
+      type: "my-checklist",
+      label: "Checklist",
+      description: "d",
+      category: "custom",
+      defaultProps: {},
+      propsFields: [{ key: "title", label: "Title", type: "string" }],
+    };
+    const applyRes = await request(
+      port,
+      "POST",
+      "/v1/workspace/component-types/apply",
+      JSON.stringify({ scope: "project", typeDef, confirmed: true }),
+    );
+    expect(applyRes.status).toBe(200);
+
+    const customWorkspace = {
+      version: 1,
+      stepId: "fe-dev",
+      layout: "tabs",
+      components: [
+        { id: "check", type: "my-checklist", props: { title: "ok" } },
+      ],
+    };
+    const putRes = await request(
+      port,
+      "PUT",
+      workspacePutPath(workflowId, "fe-dev"),
+      JSON.stringify(customWorkspace),
+    );
+    expect(putRes.status).toBe(200);
+    const getRes = await request(
+      port,
+      "GET",
+      `/v1/workflows/${workflowId}/workspaces/fe-dev`,
+    );
+    expect(getRes.status).toBe(200);
+    const loaded = JSON.parse(getRes.body) as typeof customWorkspace;
+    expect(loaded.components[0]?.type).toBe("my-checklist");
   });
 
   it("GET /v1/workflows/{id}/workspaces returns bundled step ids after init", async () => {

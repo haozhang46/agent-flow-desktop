@@ -200,7 +200,11 @@ export async function buildAgentflowChatContext(
             step.id,
             isLegacy,
           );
-          const workspace = await loadWorkspace(filePath);
+          const workspace = await loadWorkspace(filePath, {
+            workspaceRoot: options.workspaceRoot,
+            userDataRoot: resolveUserDataRoot(options.userDataRoot),
+            workflowId: workflow.id,
+          });
           parts.push(
             "",
             "### Step workspace UI",
