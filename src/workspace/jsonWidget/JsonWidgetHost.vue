@@ -3,6 +3,7 @@ import { computed, shallowRef, watch, type Component } from "vue";
 import {
   buildRenderPlan,
   executeAction,
+  getBuiltinTypeDocument,
   type PanelAction,
   type PanelTypeDocument,
   type RenderPlan,
@@ -10,7 +11,6 @@ import {
 import type { WorkspaceComponent } from "../registry";
 import type { PanelApi } from "../registryComponents";
 import { bindWidgetProps, type PanelRuntimeContext } from "../widgetBindProps";
-import { getBuiltinTypeDocument } from "./getBuiltinTypeDocument";
 import JsonFormFields from "./JsonFormFields.vue";
 import { VIEW_LOADERS } from "./viewRegistry";
 
