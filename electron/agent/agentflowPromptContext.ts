@@ -246,9 +246,21 @@ export async function buildAgentflowChatContext(
     parts.push(
       "",
       "### Workspace component registry (for workspace_* tools)",
+      "Built-in types (always available):",
       formatRegistryHint(),
+    );
+  }
+
+  if (options.mode === "agent") {
+    parts.push(
       "",
-      "Custom declarative types: use workspace_register_component_type after ask_question confirms scope (project|workflow|global); never write without approval. Prefer existing builtins when they fit.",
+      "### Custom workspace component types",
+      "You can register **new declarative component types** (not Vue SFCs) when the user needs a panel that builtins do not cover.",
+      "- Tool: `workspace_register_component_type` — proposes a type JSON; returns pending approval; **does not write disk** until the user confirms the Desktop approval card.",
+      "- Schema (Phase 1): `{ type, label, description, category, defaultProps, propsFields }` where `propsFields` are form fields (`string` | `boolean` | `select` | `string[]` | …).",
+      "- Scope (user chooses via `ask_question` before register): `project` (`.agentflow/component-types/`), `workflow` (under that workflow), or `global` (app userData).",
+      "- After approval: call `workspace_list_registry` / `workspace_add_component` to use the new type on a step.",
+      "- Prefer builtins when they fit; do not reuse built-in type ids (they are reserved).",
     );
   }
 

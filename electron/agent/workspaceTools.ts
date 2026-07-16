@@ -259,7 +259,7 @@ export function buildWorkspaceLangChainTools(ctx: WorkspaceToolContext) {
       {
         name: "workspace_register_component_type",
         description:
-          "Propose registering a custom workspace component type (project, workflow, or global scope). Returns a pending approval payload; user must confirm in the UI before the type is saved. Does not write files.",
+          "Register a new declarative workspace component type (Phase-1 JSON schema: type/label/description/category/defaultProps/propsFields). Call ask_question first so the user picks scope: project | workflow | global. Returns COMPONENT_TYPE_PENDING_APPROVAL — the Desktop approval card must confirm before anything is saved. Does not write files. Prefer workspace_list_registry + workspace_add_component when an existing type already fits.",
         schema: z.object({
           type_def: z
             .record(z.unknown())
