@@ -12,12 +12,13 @@ import {
   COMPONENT_TYPE_PENDING_PREFIX,
   WORKSPACE_PENDING_PREFIX,
 } from "../../shared/agentflowApprovalConstants";
-import { WORKSPACE_REGISTRY } from "../workflow/workspaceRegistry";
 import {
   componentTypesDir,
+  listComponentTypes,
   mergeWorkspaceRegistry,
   type ComponentTypeScope,
 } from "../workflow/componentTypeStore";
+import type { CustomComponentType } from "../workflow/customComponentTypeSchema";
 import { parseCustomComponentType } from "../workflow/customComponentTypeSchema";
 import type { WorkspaceComponent, WorkspaceDefinition } from "../workflow/workspaceSchema";
 import { LayoutSchema, validateWorkspace } from "../workflow/workspaceSchema";
@@ -41,8 +42,9 @@ function formatPendingApproval(
   stepId: string,
   before: WorkspaceDefinition | null,
   after: WorkspaceDefinition,
+  customTypes?: CustomComponentType[],
 ): string {
-  validateWorkspace(after);
+  validateWorkspace(after, { customTypes });
   const summary = summarizeChange(before, after);
   return (
     WORKSPACE_PENDING_PREFIX +
@@ -51,14 +53,19 @@ function formatPendingApproval(
 }
 
 async function finishMutation(
-  _confirm: boolean | undefined,
+  ctx: WorkspaceToolContext,
   workflowId: string,
   stepId: string,
   _filePath: string,
   before: WorkspaceDefinition | null,
   after: WorkspaceDefinition,
 ): Promise<string> {
-  return formatPendingApproval(workflowId, stepId, before, after);
+  const customTypes = await listComponentTypes({
+    workspaceRoot: ctx.workspaceRoot,
+    userDataRoot: ctx.userDataRoot,
+    workflowId,
+  });
+  return formatPendingApproval(workflowId, stepId, before, after, customTypes);
 }
 
 const workflowStepParams = {
@@ -115,10 +122,6 @@ function emptyWorkspace(stepId: string): WorkspaceDefinition {
 
 function formatWorkspace(def: WorkspaceDefinition): string {
   return JSON.stringify(def, null, 2);
-}
-
-function registryEntry(type: string) {
-  return WORKSPACE_REGISTRY.find((e) => e.type === type);
 }
 
 function uniqueComponentId(type: string, components: WorkspaceComponent[]): string {
@@ -267,11 +270,16 @@ export function buildWorkspaceLangChainTools(ctx: WorkspaceToolContext) {
       },
     ),
     tool(
-      async ({ workflow_id, step_id, type, label, props, component_id, confirm }) => {
+      async ({ workflow_id, step_id, type, label, props, component_id, confirm: _confirm }) => {
         const { workflowId, stepId, filePath } = await resolveTarget(ctx, { workflow_id, step_id });
-        const entry = registryEntry(type);
+        const entries = await mergeWorkspaceRegistry({
+          workspaceRoot: ctx.workspaceRoot,
+          userDataRoot: ctx.userDataRoot,
+          workflowId,
+        });
+        const entry = entries.find((e) => e.type === type);
         if (!entry) {
-          const valid = WORKSPACE_REGISTRY.map((e) => e.type).join(", ");
+          const valid = entries.map((e) => e.type).join(", ");
           return `Unknown component type "${type}". Valid types: ${valid}. Call workspace_list_registry first.`;
         }
 
@@ -289,7 +297,7 @@ export function buildWorkspaceLangChainTools(ctx: WorkspaceToolContext) {
           props: { ...entry.defaultProps, ...(props ?? {}) },
         };
         workspace.components.push(component);
-        return finishMutation(confirm, workflowId, stepId, filePath, before, workspace);
+        return finishMutation(ctx, workflowId, stepId, filePath, before, workspace);
       },
       {
         name: "workspace_add_component",
@@ -309,7 +317,7 @@ export function buildWorkspaceLangChainTools(ctx: WorkspaceToolContext) {
       },
     ),
     tool(
-      async ({ workflow_id, step_id, component_id, label, props, confirm }) => {
+      async ({ workflow_id, step_id, component_id, label, props, confirm: _confirm }) => {
         const { workflowId, stepId, filePath } = await resolveTarget(ctx, { workflow_id, step_id });
         const before = await tryLoadWorkspace(filePath);
         if (!before) {
@@ -324,7 +332,7 @@ export function buildWorkspaceLangChainTools(ctx: WorkspaceToolContext) {
         const comp = next.components[idx];
         if (label !== undefined) comp.label = label.trim() || undefined;
         if (props !== undefined) comp.props = { ...comp.props, ...props };
-        return finishMutation(confirm, workflowId, stepId, filePath, before, next);
+        return finishMutation(ctx, workflowId, stepId, filePath, before, next);
       },
       {
         name: "workspace_update_component",
@@ -340,7 +348,7 @@ export function buildWorkspaceLangChainTools(ctx: WorkspaceToolContext) {
       },
     ),
     tool(
-      async ({ workflow_id, step_id, component_id, confirm }) => {
+      async ({ workflow_id, step_id, component_id, confirm: _confirm }) => {
         const { workflowId, stepId, filePath } = await resolveTarget(ctx, { workflow_id, step_id });
         const before = await tryLoadWorkspace(filePath);
         if (!before) {
@@ -353,7 +361,7 @@ export function buildWorkspaceLangChainTools(ctx: WorkspaceToolContext) {
           ...before,
           components: before.components.filter((c) => c.id !== component_id),
         };
-        return finishMutation(confirm, workflowId, stepId, filePath, before, next);
+        return finishMutation(ctx, workflowId, stepId, filePath, before, next);
       },
       {
         name: "workspace_remove_component",
@@ -367,7 +375,7 @@ export function buildWorkspaceLangChainTools(ctx: WorkspaceToolContext) {
       },
     ),
     tool(
-      async ({ workflow_id, step_id, component_ids, confirm }) => {
+      async ({ workflow_id, step_id, component_ids, confirm: _confirm }) => {
         const { workflowId, stepId, filePath } = await resolveTarget(ctx, { workflow_id, step_id });
         const before = await tryLoadWorkspace(filePath);
         if (!before) {
@@ -385,7 +393,7 @@ export function buildWorkspaceLangChainTools(ctx: WorkspaceToolContext) {
           ...before,
           components: component_ids.map((id) => byId.get(id)!),
         };
-        return finishMutation(confirm, workflowId, stepId, filePath, before, next);
+        return finishMutation(ctx, workflowId, stepId, filePath, before, next);
       },
       {
         name: "workspace_reorder",
@@ -399,12 +407,12 @@ export function buildWorkspaceLangChainTools(ctx: WorkspaceToolContext) {
       },
     ),
     tool(
-      async ({ workflow_id, step_id, layout, confirm }) => {
+      async ({ workflow_id, step_id, layout, confirm: _confirm }) => {
         const { workflowId, stepId, filePath } = await resolveTarget(ctx, { workflow_id, step_id });
         const before = await tryLoadWorkspace(filePath);
         const workspace = before ?? emptyWorkspace(stepId);
         workspace.layout = layout;
-        return finishMutation(confirm, workflowId, stepId, filePath, before, workspace);
+        return finishMutation(ctx, workflowId, stepId, filePath, before, workspace);
       },
       {
         name: "workspace_set_layout",

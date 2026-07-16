@@ -8,6 +8,8 @@ import {
   buildWorkspaceLangChainTools,
 } from "../../electron/agent/workspaceTools";
 import { loadWorkspace, saveWorkspace, workspacePath, resolveWorkflowLegacy } from "../../electron/workflow/workspaceLoader";
+import { saveComponentType } from "../../electron/workflow/componentTypeStore";
+import { WORKSPACE_PENDING_PREFIX } from "../../shared/agentflowApprovalConstants";
 
 const WORKFLOW_ID = "test-wf";
 const STEP_ID = "fe-dev";
@@ -218,5 +220,41 @@ describe("workspaceTools", () => {
     const add = tools.find((t) => t.name === "workspace_add_component");
     const result = await add!.invoke({ type: "not-a-widget", props: {}, confirm: true });
     expect(String(result)).toContain("Unknown component type");
+  });
+
+  it("workspace_add_component accepts saved custom project type", async () => {
+    await saveComponentType({
+      workspaceRoot: tmp,
+      userDataRoot: userData,
+      scope: "project",
+      typeDef: {
+        type: "my-checklist",
+        label: "Checklist",
+        description: "Custom checklist widget",
+        category: "custom",
+        defaultProps: { title: "Tasks" },
+        propsFields: [{ key: "title", label: "Title", type: "string", required: true }],
+      },
+    });
+
+    const ctx = toolCtx({ workflowId: WORKFLOW_ID, stepId: STEP_ID });
+    const tools = buildWorkspaceLangChainTools(ctx);
+    const add = tools.find((t) => t.name === "workspace_add_component");
+    const result = await add!.invoke({
+      type: "my-checklist",
+      label: "My List",
+      props: { title: "Sprint tasks" },
+      confirm: true,
+    });
+
+    expect(String(result)).toContain("WORKSPACE_PENDING_APPROVAL");
+    expect(String(result)).not.toContain("Unknown component type");
+
+    const payload = JSON.parse(String(result).slice(WORKSPACE_PENDING_PREFIX.length));
+    expect(payload.after.components).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ type: "my-checklist", label: "My List" }),
+      ]),
+    );
   });
 });
