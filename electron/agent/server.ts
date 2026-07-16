@@ -76,8 +76,7 @@ import {
   saveWorkspace,
   workspacePath,
 } from "../workflow/workspaceLoader";
-import { WORKSPACE_REGISTRY } from "../workflow/workspaceRegistry";
-import { saveComponentType } from "../workflow/componentTypeStore";
+import { mergeWorkspaceRegistry, saveComponentType } from "../workflow/componentTypeStore";
 import type { CustomComponentType } from "../workflow/customComponentTypeSchema";
 import { resolveUserDataRoot } from "./tools";
 import {
@@ -950,7 +949,20 @@ export function startAgentServer(options: AgentServerOptions): http.Server {
     }
 
     if (req.method === "GET" && pathname === "/v1/workspace/registry") {
-      jsonResponse(res, 200, { components: WORKSPACE_REGISTRY });
+      try {
+        const projectRoot = requireProjectRoot(getWorkspaceRoot, res);
+        if (!projectRoot) return;
+        const workflowId = workflowIdFromQuery(req.url);
+        const components = await mergeWorkspaceRegistry({
+          workspaceRoot: projectRoot,
+          userDataRoot: resolveUserDataRoot(),
+          workflowId,
+        });
+        jsonResponse(res, 200, { components });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        jsonResponse(res, 500, { detail: message });
+      }
       return;
     }
 

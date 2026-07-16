@@ -1080,6 +1080,7 @@ async function onClarificationSubmit(answer: ClarificationAnswer) {
               :workspace="resolvedWorkspace"
               :api="panelApi"
               :runtime="panelRuntime"
+              :workflow-id="selectedWorkflowId"
             />
             <p
               v-else-if="workspaceResolved"
