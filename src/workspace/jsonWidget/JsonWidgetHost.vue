@@ -38,6 +38,7 @@ const plan = computed<RenderPlan | null>(() => {
 
 const viewComponent = shallowRef<Component | null>(null);
 const unknownViewName = shallowRef<string | null>(null);
+let viewLoadGeneration = 0;
 
 watch(
   () => {
@@ -46,6 +47,7 @@ watch(
     return p.viewName;
   },
   async (viewName) => {
+    const generation = ++viewLoadGeneration;
     viewComponent.value = null;
     unknownViewName.value = null;
     if (!viewName) return;
@@ -55,6 +57,7 @@ watch(
       return;
     }
     const mod = await loader();
+    if (generation !== viewLoadGeneration) return;
     viewComponent.value = mod.default;
   },
   { immediate: true },
@@ -76,15 +79,22 @@ function onFormChange(next: Record<string, unknown>) {
   props.onPropsUpdate?.(next);
 }
 
+const actionError = shallowRef<string | null>(null);
+
 async function onActionClick(action: PanelAction) {
-  await executeAction(action, {
-    props: props.props,
-    setProps: async (next) => {
-      props.onPropsUpdate?.(next);
-    },
-    panelApi: props.api as unknown as Record<string, (...args: unknown[]) => unknown>,
-    chatInvoke: props.chatInvoke,
-  });
+  actionError.value = null;
+  try {
+    await executeAction(action, {
+      props: props.props,
+      setProps: async (next) => {
+        props.onPropsUpdate?.(next);
+      },
+      panelApi: props.api as unknown as Record<string, (...args: unknown[]) => unknown>,
+      chatInvoke: props.chatInvoke,
+    });
+  } catch (err) {
+    actionError.value = err instanceof Error ? err.message : String(err);
+  }
 }
 </script>
 
@@ -118,6 +128,14 @@ async function onActionClick(action: PanelAction) {
       :values="plan.values"
       @change="onFormChange"
     />
+
+    <div
+      v-if="actionError"
+      class="mx-3 mb-2 rounded border border-red-200 bg-red-50 p-2 text-xs text-red-700"
+      data-testid="json-widget-action-error"
+    >
+      {{ actionError }}
+    </div>
 
     <div
       v-if="plan.kind !== 'error' && plan.actions.length"

@@ -35,7 +35,7 @@ export type PanelApi = Pick<
   subscribeFileWrites?: (handler: (path: string) => void) => () => void;
 };
 
-/** @deprecated Prefer VIEW_LOADERS from jsonWidget/viewRegistry. Kept for Design preview. */
+/** @deprecated Prefer VIEW_LOADERS from jsonWidget/viewRegistry. Compat alias of VIEW_LOADERS. */
 export const WIDGET_COMPONENTS: Record<string, () => Promise<{ default: Component }>> = VIEW_LOADERS;
 
 export function isRegisteredWidgetType(type: string): boolean {
