@@ -77,6 +77,9 @@ import {
   workspacePath,
 } from "../workflow/workspaceLoader";
 import { WORKSPACE_REGISTRY } from "../workflow/workspaceRegistry";
+import { saveComponentType } from "../workflow/componentTypeStore";
+import type { CustomComponentType } from "../workflow/customComponentTypeSchema";
+import { resolveUserDataRoot } from "./tools";
 import {
   workspaceOpsBootstrap,
   workspaceOpsBundleForStream,
@@ -948,6 +951,46 @@ export function startAgentServer(options: AgentServerOptions): http.Server {
 
     if (req.method === "GET" && pathname === "/v1/workspace/registry") {
       jsonResponse(res, 200, { components: WORKSPACE_REGISTRY });
+      return;
+    }
+
+    if (req.method === "POST" && pathname === "/v1/workspace/component-types/apply") {
+      let payload: {
+        scope?: string;
+        workflowId?: string;
+        typeDef?: unknown;
+      };
+      try {
+        payload = JSON.parse(await readBody(req));
+      } catch {
+        jsonResponse(res, 400, { detail: "invalid JSON" });
+        return;
+      }
+      if (!payload.scope || payload.typeDef === undefined) {
+        jsonResponse(res, 400, { detail: "scope and typeDef required" });
+        return;
+      }
+      if (
+        payload.scope !== "project" &&
+        payload.scope !== "workflow" &&
+        payload.scope !== "global"
+      ) {
+        jsonResponse(res, 400, { detail: "scope must be project, workflow, or global" });
+        return;
+      }
+      try {
+        const filePath = await saveComponentType({
+          workspaceRoot: getWorkspaceRoot(),
+          userDataRoot: resolveUserDataRoot(),
+          scope: payload.scope,
+          workflowId: payload.workflowId,
+          typeDef: payload.typeDef as CustomComponentType,
+        });
+        jsonResponse(res, 200, { ok: true, path: filePath });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        jsonResponse(res, 400, { detail: message });
+      }
       return;
     }
 

@@ -26,6 +26,7 @@ import WorkflowConfigDrawer from "../components/workflow/WorkflowConfigDrawer.vu
 import WorkspaceDesigner from "../components/workflow/WorkspaceDesigner.vue";
 import WorkspaceApprovalCard from "../components/workflow/WorkspaceApprovalCard.vue";
 import AgentflowFileApprovalCard from "../components/workflow/AgentflowFileApprovalCard.vue";
+import ComponentTypeApprovalCard from "../components/workflow/ComponentTypeApprovalCard.vue";
 import WorkflowSidebar from "../components/workflow/WorkflowSidebar.vue";
 import WorkflowTemplatePicker from "../components/workflow/WorkflowTemplatePicker.vue";
 import ProjectUnderstandPanel from "../components/ua/ProjectUnderstandPanel.vue";
@@ -240,11 +241,13 @@ const workspaceResolved = ref(false);
 const {
   pendingWorkspace: pendingWorkspaceApproval,
   pendingFile: pendingAgentflowFileApproval,
+  pendingComponentType: pendingComponentTypeApproval,
   approvalError: workspaceApprovalError,
   approving: workspaceApproving,
   handleToolEndOutput,
   approvePendingWorkspace: onApproveWorkspaceChange,
   approvePendingFile: onApproveAgentflowFileChange,
+  approvePendingComponentType: onApproveComponentTypeChange,
   cancelPending: onCancelWorkspaceChange,
 } = useWorkspaceApproval(
   async (workflowId, stepId) => {
@@ -1167,7 +1170,7 @@ async function onClarificationSubmit(answer: ClarificationAnswer) {
 
               <template #approval>
                 <div
-                  v-if="pendingWorkspaceApproval || pendingAgentflowFileApproval"
+                  v-if="pendingWorkspaceApproval || pendingAgentflowFileApproval || pendingComponentTypeApproval"
                   class="shrink-0 px-4 py-2 border-t border-amber-100 bg-white space-y-1"
                 >
                   <WorkspaceApprovalCard
@@ -1189,6 +1192,17 @@ async function onClarificationSubmit(answer: ClarificationAnswer) {
                     :after="pendingAgentflowFileApproval.after"
                     :approving="workspaceApproving"
                     @approve="onApproveAgentflowFileChange"
+                    @cancel="onCancelWorkspaceChange"
+                  />
+                  <ComponentTypeApprovalCard
+                    v-if="pendingComponentTypeApproval"
+                    compact
+                    :summary="pendingComponentTypeApproval.summary"
+                    :scope="pendingComponentTypeApproval.scope"
+                    :type-def="pendingComponentTypeApproval.typeDef"
+                    :overwrite="pendingComponentTypeApproval.overwrite"
+                    :approving="workspaceApproving"
+                    @approve="onApproveComponentTypeChange"
                     @cancel="onCancelWorkspaceChange"
                   />
                   <p v-if="workspaceApprovalError" class="text-xs text-red-600">

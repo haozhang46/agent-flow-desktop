@@ -22,7 +22,7 @@ export type AgentToolContext = DesktopToolContext & {
   userDataRoot?: string | null;
 };
 
-function resolveUserDataRoot(explicit?: string | null): string {
+export function resolveUserDataRoot(explicit?: string | null): string {
   if (explicit?.trim()) return explicit.trim();
   try {
     // Electron main: prefer app userData; tests/Node fall through.
