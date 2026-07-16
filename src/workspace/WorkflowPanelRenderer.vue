@@ -1,8 +1,14 @@
 <script setup lang="ts">
-import { computed, ref, shallowRef, watch, type Component } from "vue";
-import type { WorkspaceComponent, WorkspaceDefinition } from "./registry";
-import { isRegisteredWidgetType, WIDGET_COMPONENTS, type PanelApi } from "./registryComponents";
+import { computed, markRaw, ref, shallowRef, watch, type Component } from "vue";
+import type { PropField, WorkspaceComponent, WorkspaceDefinition } from "./registry";
+import {
+  isRegisteredWidgetType,
+  WIDGET_COMPONENTS,
+  type PanelApi,
+} from "./registryComponents";
 import { bindWidgetProps, type PanelRuntimeContext } from "./widgetBindProps";
+import { useWorkspaceConfig } from "../composables/useWorkspaceConfig";
+import DeclarativePanelWidget from "./widgets/DeclarativePanelWidget.vue";
 
 export type { PanelRuntimeContext };
 
@@ -10,24 +16,43 @@ const props = defineProps<{
   workspace: WorkspaceDefinition;
   api: PanelApi;
   runtime?: PanelRuntimeContext;
+  workflowId?: string | null;
 }>();
 
 const activeTabId = ref("");
 const resolvedByType = shallowRef<Record<string, Component>>({});
+const registryByType = ref<Record<string, { propsFields: PropField[] }>>({});
+const { fetchRegistry } = useWorkspaceConfig();
 
 const components = computed(() => props.workspace.components);
 
 watch(
-  () => props.workspace.components.map((c) => c.type).join(","),
+  () => [props.workflowId, props.workspace.components.map((c) => c.type).join(",")] as const,
   async () => {
-    const map: Record<string, Component> = {};
+    const types = props.workspace.components.map((c) => c.type);
+    const needsDeclarative = types.some((t) => !isRegisteredWidgetType(t));
+
+    const builtinMap: Record<string, Component> = {};
     for (const comp of props.workspace.components) {
-      if (map[comp.type] || !isRegisteredWidgetType(comp.type)) continue;
+      if (builtinMap[comp.type] || !isRegisteredWidgetType(comp.type)) continue;
       const loader = WIDGET_COMPONENTS[comp.type];
       const mod = await loader();
-      map[comp.type] = mod.default;
+      builtinMap[comp.type] = markRaw(mod.default);
     }
-    resolvedByType.value = map;
+    resolvedByType.value = builtinMap;
+
+    if (!needsDeclarative) return;
+
+    try {
+      const res = await fetchRegistry(props.workflowId);
+      const map: Record<string, { propsFields: PropField[] }> = {};
+      for (const entry of res.components) {
+        map[entry.type] = { propsFields: entry.propsFields };
+      }
+      registryByType.value = map;
+    } catch {
+      registryByType.value = {};
+    }
   },
   { immediate: true },
 );
@@ -54,8 +79,23 @@ function bindProps(comp: WorkspaceComponent): Record<string, unknown> {
   return bindWidgetProps(comp, props.api, props.runtime, props.workspace.stepId);
 }
 
-function isUnknownType(type: string): boolean {
-  return !isRegisteredWidgetType(type);
+function isBuiltinType(type: string): boolean {
+  return isRegisteredWidgetType(type);
+}
+
+function declarativeProps(comp: WorkspaceComponent): Record<string, unknown> {
+  const entry = registryByType.value[comp.type];
+  if (!entry) {
+    return {
+      propsFields: [],
+      modelProps: comp.props,
+      missingType: comp.type,
+    };
+  }
+  return {
+    propsFields: entry.propsFields,
+    modelProps: comp.props,
+  };
 }
 </script>
 
@@ -92,17 +132,14 @@ function isUnknownType(type: string): boolean {
             class="flex flex-col flex-1 min-h-0 overflow-hidden"
             role="tabpanel"
           >
-            <div
-              v-if="isUnknownType(comp.type)"
-              class="m-4 rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700"
-              data-testid="unknown-widget-error"
-            >
-              Unknown widget type: {{ comp.type }}
-            </div>
             <component
               :is="resolvedByType[comp.type]"
-              v-else-if="resolvedByType[comp.type]"
+              v-if="isBuiltinType(comp.type) && resolvedByType[comp.type]"
               v-bind="bindProps(comp)"
+            />
+            <DeclarativePanelWidget
+              v-else-if="!isBuiltinType(comp.type)"
+              v-bind="declarativeProps(comp)"
             />
           </div>
         </template>
@@ -124,17 +161,14 @@ function isUnknownType(type: string): boolean {
             {{ comp.label }}
           </header>
           <div class="flex flex-col flex-1 min-h-0">
-            <div
-              v-if="isUnknownType(comp.type)"
-              class="m-4 rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700"
-              data-testid="unknown-widget-error"
-            >
-              Unknown widget type: {{ comp.type }}
-            </div>
             <component
               :is="resolvedByType[comp.type]"
-              v-else-if="resolvedByType[comp.type]"
+              v-if="isBuiltinType(comp.type) && resolvedByType[comp.type]"
               v-bind="bindProps(comp)"
+            />
+            <DeclarativePanelWidget
+              v-else-if="!isBuiltinType(comp.type)"
+              v-bind="declarativeProps(comp)"
             />
           </div>
         </section>

@@ -57,8 +57,14 @@ export function useWorkspaceConfig() {
     );
   }
 
-  async function fetchRegistry(): Promise<WorkspaceRegistryResponse> {
-    return apiJson("/v1/workspace/registry");
+  async function fetchRegistry(
+    workflowId?: string | null,
+  ): Promise<WorkspaceRegistryResponse> {
+    const q =
+      workflowId && workflowId.trim()
+        ? `?workflowId=${encodeURIComponent(workflowId.trim())}`
+        : "";
+    return apiJson(`/v1/workspace/registry${q}`);
   }
 
   async function listWorkspaces(workflowId: string): Promise<WorkspaceListResponse> {

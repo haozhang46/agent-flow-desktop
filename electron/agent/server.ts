@@ -1,8 +1,17 @@
 import http from "node:http";
 import { ZodError } from "zod";
 import { logger } from "../utils/logger";
-import { agentService, type ChatMode } from "./agentService";
+import {
+  agentService,
+  ClarificationResumeError,
+  type ChatMode,
+} from "./agentService";
 import { AgentStreamFilter } from "./agentStreamFilter";
+import { clarificationService } from "./clarificationService";
+import {
+  ClarificationAnswerSchema,
+  type ClarificationAnswer,
+} from "./clarificationTypes";
 import {
   drainSseTick,
   prepareSseResponse,
@@ -11,7 +20,11 @@ import {
 } from "./sseWrite";
 import { streamChunkText } from "./streamChunk";
 import { formatToolOutput } from "./toolEvents";
-import { streamFileChat } from "./fileChatService";
+import {
+  resumeFileChatClarification,
+  streamFileChat,
+} from "./fileChatService";
+import type { AgentGraphStreamEvent } from "./streamAgentGraph";
 import { listSkillCatalog, listSkills } from "../skills/loader";
 import {
   createWorkflowFromTemplate,
@@ -63,7 +76,9 @@ import {
   saveWorkspace,
   workspacePath,
 } from "../workflow/workspaceLoader";
-import { WORKSPACE_REGISTRY } from "../workflow/workspaceRegistry";
+import { mergeWorkspaceRegistry, saveComponentType } from "../workflow/componentTypeStore";
+import type { CustomComponentType } from "../workflow/customComponentTypeSchema";
+import { resolveUserDataRoot } from "./tools";
 import {
   workspaceOpsBootstrap,
   workspaceOpsBundleForStream,
@@ -168,6 +183,109 @@ function requireProjectRoot(
     return null;
   }
   return projectRoot;
+}
+
+function inferChatMode(threadId: string, explicit?: string): ChatMode {
+  if (explicit === "ask" || explicit === "plan" || explicit === "agent") {
+    return explicit;
+  }
+  if (threadId.startsWith("ask:")) return "ask";
+  if (threadId.startsWith("plan:")) return "plan";
+  return "agent";
+}
+
+function isFileChatThread(threadId: string): boolean {
+  return threadId.startsWith("file:");
+}
+
+async function pipeAgentGraphEventsToSse(
+  res: http.ServerResponse,
+  events: AsyncIterable<AgentGraphStreamEvent>,
+  mode: ChatMode,
+): Promise<{ awaitingClarification: boolean }> {
+  const streamFilter = new AgentStreamFilter(mode);
+  let awaitingClarification = false;
+
+  for await (const event of events) {
+    if (event.event === "clarification") {
+      writeSse(res, "clarification", event.data ?? {});
+      await drainSseTick();
+      continue;
+    }
+    if (event.event === "awaiting_clarification") {
+      awaitingClarification = true;
+      continue;
+    }
+    if (event.event === "plan_ready") {
+      writeSse(res, "plan_ready", event.data ?? {});
+      await drainSseTick();
+      continue;
+    }
+    if (event.event === "on_chat_model_stream") {
+      const chunk = event.data?.chunk as { content?: unknown } | undefined;
+      const text = streamChunkText(chunk?.content);
+      if (text) {
+        for (const action of streamFilter.onModelChunk(text)) {
+          await writeSseMessageContent(res, action.content);
+        }
+      }
+    } else if (event.event === "on_tool_start") {
+      streamFilter.onToolStart();
+      if (mode === "agent") {
+        writeSse(res, "tool_start", {
+          call_id: event.run_id ?? "",
+          name: event.name ?? "",
+        });
+        await drainSseTick();
+      }
+    } else if (event.event === "on_tool_end") {
+      if (mode === "agent") {
+        const output = formatToolOutput(event.data?.output);
+        writeSse(res, "tool_end", {
+          call_id: event.run_id ?? "",
+          name: event.name ?? "",
+          ok: true,
+          ...(output !== undefined ? { output } : {}),
+        });
+        await drainSseTick();
+      }
+    }
+  }
+
+  for (const action of streamFilter.finish()) {
+    await writeSseMessageContent(res, action.content);
+  }
+  return { awaitingClarification };
+}
+
+function writeSseHeaders(res: http.ServerResponse): void {
+  res.writeHead(200, {
+    "Content-Type": "text/event-stream",
+    "Cache-Control": "no-cache, no-transform",
+    Connection: "keep-alive",
+    "X-Accel-Buffering": "no",
+  });
+  prepareSseResponse(res);
+}
+
+/** Map pending/answer state to HTTP error before opening the resume SSE. */
+function clarificationResumeHttpError(
+  threadId: string,
+  clarificationId: string,
+  answer: ClarificationAnswer,
+): { status: 400 | 404 | 409; detail: string } | null {
+  const pending = clarificationService.getPending(threadId, clarificationId);
+  if (!pending || pending.status === "cancelled") {
+    return { status: 404, detail: "Clarification not found" };
+  }
+  if (pending.status === "answered") {
+    return { status: 409, detail: "Clarification already answered" };
+  }
+  const validation = clarificationService.validateAnswer(pending, answer);
+  if (!validation.ok) {
+    return { status: validation.status, detail: validation.detail };
+  }
+  return null;
 }
 
 function parseScopeFromQuery(
@@ -574,7 +692,11 @@ export function startAgentServer(options: AgentServerOptions): http.Server {
           const workspaceRoot = getWorkspaceRoot();
           const isLegacy = await resolveWorkflowLegacy(workspaceRoot, workflowId);
           const filePath = workspacePath(workspaceRoot, workflowId, stepId, isLegacy);
-          const workspace = await loadWorkspace(filePath);
+          const workspace = await loadWorkspace(filePath, {
+            workspaceRoot,
+            userDataRoot: resolveUserDataRoot(),
+            workflowId,
+          });
           jsonResponse(res, 200, workspace);
         } catch (err) {
           if (isWorkflowNotFound(err)) {
@@ -612,7 +734,11 @@ export function startAgentServer(options: AgentServerOptions): http.Server {
           const workspaceRoot = getWorkspaceRoot();
           const isLegacy = await resolveWorkflowLegacy(workspaceRoot, workflowId);
           const filePath = workspacePath(workspaceRoot, workflowId, stepId, isLegacy);
-          const workspace = await saveWorkspace(filePath, payload, stepId);
+          const workspace = await saveWorkspace(filePath, payload, stepId, {
+            workspaceRoot,
+            userDataRoot: resolveUserDataRoot(),
+            workflowId,
+          });
           jsonResponse(res, 200, workspace);
         } catch (err) {
           if (isWorkflowNotFound(err)) {
@@ -831,7 +957,66 @@ export function startAgentServer(options: AgentServerOptions): http.Server {
     }
 
     if (req.method === "GET" && pathname === "/v1/workspace/registry") {
-      jsonResponse(res, 200, { components: WORKSPACE_REGISTRY });
+      try {
+        const projectRoot = requireProjectRoot(getWorkspaceRoot, res);
+        if (!projectRoot) return;
+        const workflowId = workflowIdFromQuery(req.url);
+        const components = await mergeWorkspaceRegistry({
+          workspaceRoot: projectRoot,
+          userDataRoot: resolveUserDataRoot(),
+          workflowId,
+        });
+        jsonResponse(res, 200, { components });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        jsonResponse(res, 500, { detail: message });
+      }
+      return;
+    }
+
+    if (req.method === "POST" && pathname === "/v1/workspace/component-types/apply") {
+      let payload: {
+        scope?: string;
+        workflowId?: string;
+        typeDef?: unknown;
+        confirmed?: boolean;
+      };
+      try {
+        payload = JSON.parse(await readBody(req));
+      } catch {
+        jsonResponse(res, 400, { detail: "invalid JSON" });
+        return;
+      }
+      if (!payload.scope || payload.typeDef === undefined) {
+        jsonResponse(res, 400, { detail: "scope and typeDef required" });
+        return;
+      }
+      if (
+        payload.scope !== "project" &&
+        payload.scope !== "workflow" &&
+        payload.scope !== "global"
+      ) {
+        jsonResponse(res, 400, { detail: "scope must be project, workflow, or global" });
+        return;
+      }
+      try {
+        requireAgentflowMutation(payload.confirmed);
+        const filePath = await saveComponentType({
+          workspaceRoot: getWorkspaceRoot(),
+          userDataRoot: resolveUserDataRoot(),
+          scope: payload.scope,
+          workflowId: payload.workflowId,
+          typeDef: payload.typeDef as CustomComponentType,
+        });
+        jsonResponse(res, 200, { ok: true, path: filePath });
+      } catch (err) {
+        if (err instanceof AgentflowWriteConfirmationRequiredError) {
+          jsonResponse(res, 400, { detail: err.message });
+          return;
+        }
+        const message = err instanceof Error ? err.message : String(err);
+        jsonResponse(res, 400, { detail: message });
+      }
       return;
     }
 
@@ -1627,13 +1812,7 @@ export function startAgentServer(options: AgentServerOptions): http.Server {
         return;
       }
 
-      res.writeHead(200, {
-        "Content-Type": "text/event-stream",
-        "Cache-Control": "no-cache, no-transform",
-        Connection: "keep-alive",
-        "X-Accel-Buffering": "no",
-      });
-      prepareSseResponse(res);
+      writeSseHeaders(res);
 
       try {
         const events = agentService.streamEvents(payload.thread_id, payload.message, {
@@ -1642,53 +1821,160 @@ export function startAgentServer(options: AgentServerOptions): http.Server {
           stepId: payload.stepId,
           workflowId: payload.workflowId,
         });
-        const streamFilter = new AgentStreamFilter(mode);
-        for await (const event of events) {
-          if (event.event === "plan_ready") {
-            writeSse(res, "plan_ready", event.data ?? {});
-            await drainSseTick();
-            continue;
-          }
-          if (event.event === "on_chat_model_stream") {
-            const chunk = event.data?.chunk as { content?: unknown } | undefined;
-            const text = streamChunkText(chunk?.content);
-            if (text) {
-              for (const action of streamFilter.onModelChunk(text)) {
-                await writeSseMessageContent(res, action.content);
-              }
-            }
-          } else if (event.event === "on_tool_start") {
-            streamFilter.onToolStart();
-            if (mode === "agent") {
-              writeSse(res, "tool_start", {
-                call_id: event.run_id ?? "",
-                name: event.name ?? "",
-              });
-              await drainSseTick();
-            }
-          } else if (event.event === "on_tool_end") {
-            if (mode === "agent") {
-              const output = formatToolOutput(event.data?.output);
-              writeSse(res, "tool_end", {
-                call_id: event.run_id ?? "",
-                name: event.name ?? "",
-                ok: true,
-                ...(output !== undefined ? { output } : {}),
-              });
-              await drainSseTick();
-            }
-          }
-        }
-        for (const action of streamFilter.finish()) {
-          await writeSseMessageContent(res, action.content);
-        }
-        writeSse(res, "done", {});
+        const { awaitingClarification } = await pipeAgentGraphEventsToSse(
+          res,
+          events,
+          mode,
+        );
+        writeSse(
+          res,
+          "done",
+          awaitingClarification ? { awaiting_clarification: true } : {},
+        );
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         writeSse(res, "message", { content: `\n\nError: ${message}` });
         writeSse(res, "done", {});
       }
       res.end();
+      return;
+    }
+
+    const clarificationAnswerMatch = pathname?.match(
+      /^\/v1\/threads\/([^/]+)\/clarifications\/([^/]+)$/,
+    );
+    if (req.method === "POST" && clarificationAnswerMatch) {
+      const threadId = decodeURIComponent(clarificationAnswerMatch[1]);
+      const clarificationId = decodeURIComponent(clarificationAnswerMatch[2]);
+
+      let rawBody: unknown;
+      try {
+        rawBody = JSON.parse(await readBody(req));
+      } catch {
+        jsonResponse(res, 400, { detail: "invalid JSON" });
+        return;
+      }
+
+      const answerParsed = ClarificationAnswerSchema.safeParse(rawBody);
+      if (!answerParsed.success) {
+        jsonResponse(res, 400, zodErrorDetail(answerParsed.error));
+        return;
+      }
+      const answer = answerParsed.data;
+      const body =
+        rawBody && typeof rawBody === "object"
+          ? (rawBody as Record<string, unknown>)
+          : {};
+      const skills = Array.isArray(body.skills)
+        ? body.skills.filter((s): s is string => typeof s === "string")
+        : undefined;
+      const stepId =
+        typeof body.stepId === "string" ? body.stepId.trim() || undefined : undefined;
+      const workflowId =
+        typeof body.workflowId === "string"
+          ? body.workflowId.trim() || undefined
+          : undefined;
+      const paths = Array.isArray(body.paths)
+        ? body.paths
+            .filter((p): p is string => typeof p === "string")
+            .map((p) => p.trim())
+            .filter(Boolean)
+        : undefined;
+      const modeExplicit =
+        typeof body.mode === "string" ? body.mode : undefined;
+
+      const mode = inferChatMode(threadId, modeExplicit);
+      const checkpointThreadId = agentService.resolveCheckpointThreadId(
+        threadId,
+        mode,
+      );
+
+      const resumeError = clarificationResumeHttpError(
+        isFileChatThread(threadId) ? threadId : checkpointThreadId,
+        clarificationId,
+        answer,
+      );
+      if (resumeError) {
+        jsonResponse(res, resumeError.status, { detail: resumeError.detail });
+        return;
+      }
+
+      try {
+        if (isFileChatThread(threadId)) {
+          if (!paths?.length) {
+            jsonResponse(res, 400, { detail: "paths required for file-chat resume" });
+            return;
+          }
+          const apiKey = getApiKey();
+          if (!apiKey) {
+            jsonResponse(res, 400, { detail: "DEEPSEEK_API_KEY not set" });
+            return;
+          }
+          const workspaceRoot = getWorkspaceRoot();
+          writeSseHeaders(res);
+          const events = resumeFileChatClarification({
+            request: {
+              workspaceRoot,
+              projectRoot: workspaceRoot,
+              paths,
+              skills,
+              stepId,
+              checkpointThreadId: threadId,
+              apiKey,
+            },
+            clarificationId,
+            answer,
+          });
+          for await (const event of events) {
+            writeSse(res, event.type, event);
+          }
+          res.end();
+          return;
+        }
+
+        if (!syncAgent()) {
+          jsonResponse(res, 400, { detail: "DEEPSEEK_API_KEY not set" });
+          return;
+        }
+
+        writeSseHeaders(res);
+        const events = agentService.resumeClarification(
+          threadId,
+          clarificationId,
+          answer,
+          { mode, skills, stepId, workflowId },
+        );
+        const { awaitingClarification } = await pipeAgentGraphEventsToSse(
+          res,
+          events,
+          mode,
+        );
+        writeSse(
+          res,
+          "done",
+          awaitingClarification ? { awaiting_clarification: true } : {},
+        );
+        res.end();
+      } catch (err) {
+        if (err instanceof ClarificationResumeError) {
+          if (!res.headersSent) {
+            jsonResponse(res, err.status, { detail: err.message });
+            return;
+          }
+          writeSse(res, "message", { content: `\n\nError: ${err.message}` });
+          writeSse(res, "done", {});
+          res.end();
+          return;
+        }
+        const message = err instanceof Error ? err.message : String(err);
+        if (!res.headersSent) {
+          jsonResponse(res, 500, { detail: message });
+          return;
+        }
+        writeSse(res, "message", { content: `\n\nError: ${message}` });
+        writeSse(res, "done", {});
+        res.end();
+      }
       return;
     }
 

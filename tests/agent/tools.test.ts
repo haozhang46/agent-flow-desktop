@@ -18,8 +18,9 @@ describe("desktop agent tools", () => {
     expect(names).toContain("run_shell");
     expect(names).toContain("workspace_get");
     expect(names).toContain("workspace_add_component");
+    expect(names).toContain("workspace_register_component_type");
     expect(names).toContain("ops_get_config");
-    expect(names).toHaveLength(17);
+    expect(names).toHaveLength(18);
   });
 
   it("full agent includes topology tools when resource server configured", () => {
@@ -29,8 +30,9 @@ describe("desktop agent tools", () => {
     expect(names).toContain("topology_import_compose");
     expect(names).toContain("ops_logs_tail");
     expect(names).toContain("workspace_get");
+    expect(names).toContain("workspace_register_component_type");
     expect(names).toContain("run_shell");
-    expect(names).toHaveLength(24);
+    expect(names).toHaveLength(25);
   });
 
   it("read-only plan tools exclude run_shell and mutating topology/ops/workspace tools", () => {

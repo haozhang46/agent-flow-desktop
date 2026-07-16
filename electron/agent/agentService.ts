@@ -2,16 +2,32 @@ import { HumanMessage } from "@langchain/core/messages";
 import { ChatOpenAI } from "@langchain/openai";
 import type { SqliteSaver } from "@langchain/langgraph-checkpoint-sqlite";
 import { getProjectCheckpointer } from "../chatMemory/checkpointer";
+import { getToolsForMode } from "./agentflowPromptContext";
+import { clarificationService } from "./clarificationService";
+import type { ClarificationAnswer } from "./clarificationTypes";
 import {
-  buildDesktopLangChainTools,
-  buildReadOnlyDesktopTools,
-} from "./tools";
-import { buildChatSystemPrompt, buildStepChatSystemPrompt, type ChatMode } from "./prompt";
+  classifyCreateComponentIntent,
+  guidanceForIntentResult,
+  type IntentRouterResult,
+} from "./intentRouter";
+import {
+  buildChatSystemPrompt,
+  buildStepChatSystemPrompt,
+  type ChatMode,
+} from "./prompt";
 import { getRecursionLimit } from "./recursionLimit";
 import { buildStreamingReactAgent } from "./reactGraph";
 import { streamChunkText } from "./streamChunk";
-import { streamCompiledAgent } from "./streamAgentGraph";
+import {
+  abandonInterruptedClarification,
+  buildResumeCommand,
+  ClarificationResumeError,
+  prepareResume,
+  streamCompiledAgent,
+  type AgentGraphStreamEvent,
+} from "./streamAgentGraph";
 
+export { ClarificationResumeError };
 const DEEPSEEK_BASE_URL = "https://api.deepseek.com/v1";
 const DEEPSEEK_MODEL = "deepseek-v4-pro";
 const DEEPSEEK_REASONING_EFFORT = "max";
@@ -52,7 +68,6 @@ export class AgentService {
   private checkpointer: SqliteSaver | null = null;
   private checkpointerProjectRoot: string | null = null;
   private config: AgentConfig | null = null;
-  private agents = new Map<ChatMode, CompiledAgent>();
 
   private resolveProjectRoot(config: AgentConfig): string {
     return config.projectRoot ?? config.workspaceRoot;
@@ -67,55 +82,12 @@ export class AgentService {
   }
 
   configure(config: AgentConfig): void {
-    const projectRoot = this.resolveProjectRoot(config);
-    const prevProjectRoot = this.config ? this.resolveProjectRoot(this.config) : null;
-    const unchanged =
-      this.config?.apiKey === config.apiKey &&
-      this.config?.workspaceRoot === config.workspaceRoot &&
-      prevProjectRoot === projectRoot &&
-      this.config?.resourceServerUrl === config.resourceServerUrl &&
-      this.agents.size > 0;
     this.config = config;
-    if (unchanged) return;
-
-    const checkpointer = this.getCheckpointer(projectRoot);
-
-    const model = createDeepSeekChatModel(config.apiKey, { streaming: true });
-
-    const ctx = {
-      workspaceRoot: config.workspaceRoot,
-      resourceServerUrl: config.resourceServerUrl,
-    };
-    this.agents.clear();
-    this.agents.set(
-      "ask",
-      buildStreamingReactAgent({
-        llm: model,
-        tools: [],
-        checkpointer,
-      }),
-    );
-    this.agents.set(
-      "plan",
-      buildStreamingReactAgent({
-        llm: model,
-        tools: buildReadOnlyDesktopTools(ctx),
-        checkpointer,
-      }),
-    );
-    this.agents.set(
-      "agent",
-      buildStreamingReactAgent({
-        llm: model,
-        tools: buildDesktopLangChainTools(ctx),
-        checkpointer,
-      }),
-    );
+    // Tools are thread-scoped (ask_question closes over threadId) and rebuilt per stream.
   }
 
   clear(): void {
     this.config = null;
-    this.agents.clear();
     this.checkpointer = null;
     this.checkpointerProjectRoot = null;
   }
@@ -126,38 +98,57 @@ export class AgentService {
     await model.invoke([new HumanMessage("ping")]);
   }
 
-  private getAgent(mode: ChatMode) {
-    const agent = this.agents.get(mode);
-    if (!agent || !this.config) {
+  private ensureConfigured(): AgentConfig {
+    if (!this.config) {
       throw new Error("Agent not configured: set DeepSeek API key first");
     }
-    return agent;
+    return this.config;
   }
 
-  private resolveCheckpointThreadId(threadId: string, mode: ChatMode): string {
+  private buildAgentForStream(
+    mode: ChatMode,
+    clarificationThreadId: string,
+    options: Pick<ChatStreamOptions, "workflowId" | "stepId">,
+  ): CompiledAgent {
+    const config = this.ensureConfigured();
+    const projectRoot = this.resolveProjectRoot(config);
+    const checkpointer = this.getCheckpointer(projectRoot);
+    const model = createDeepSeekChatModel(config.apiKey, { streaming: true });
+    const tools = getToolsForMode({
+      mode,
+      workspaceRoot: config.workspaceRoot,
+      resourceServerUrl: config.resourceServerUrl,
+      workflowId: options.workflowId,
+      stepId: options.stepId,
+      clarificationThreadId,
+    });
+    return buildStreamingReactAgent({
+      llm: model,
+      tools,
+      checkpointer,
+    });
+  }
+
+  resolveCheckpointThreadId(threadId: string, mode: ChatMode): string {
     if (threadId.includes(":")) {
       return threadId;
     }
     return `${mode}:${threadId}`;
   }
 
-  async *streamEvents(
-    threadId: string,
-    message: string,
+  private async buildSystemPrompt(
+    mode: ChatMode,
+    clarificationThreadId: string,
     options: ChatStreamOptions,
-  ): AsyncGenerator<{ event: string; data?: Record<string, unknown>; name?: string; run_id?: string }> {
-    const mode = options.mode;
-    const agent = this.getAgent(mode);
-
-    // 根据是否有 step context 选择 system prompt 构建方式
-    let systemPrompt: string;
+  ): Promise<string> {
     const chatContext = {
       resourceServerUrl: this.config!.resourceServerUrl,
       workflowId: options.workflowId,
       stepId: options.stepId,
+      clarificationThreadId,
     };
     if (options.stepId && options.workflowId) {
-      systemPrompt = await buildStepChatSystemPrompt(
+      return buildStepChatSystemPrompt(
         mode,
         this.config!.workspaceRoot,
         options.stepId,
@@ -165,14 +156,61 @@ export class AgentService {
         options.skills ?? [],
         chatContext,
       );
-    } else {
-      systemPrompt = await buildChatSystemPrompt(
-        mode,
-        this.config!.workspaceRoot,
-        options.skills ?? [],
-        chatContext,
-      );
     }
+    return buildChatSystemPrompt(
+      mode,
+      this.config!.workspaceRoot,
+      options.skills ?? [],
+      chatContext,
+    );
+  }
+
+  /**
+   * Phase-1 intent_router: classify before agent stream.
+   * On failure, degrade to normal agent (null → no extra guidance).
+   */
+  private async resolveCreateComponentIntent(
+    message: string,
+  ): Promise<IntentRouterResult | null> {
+    try {
+      return await classifyCreateComponentIntent(message);
+    } catch {
+      return null;
+    }
+  }
+
+  async *streamEvents(
+    threadId: string,
+    message: string,
+    options: ChatStreamOptions,
+  ): AsyncGenerator<AgentGraphStreamEvent> {
+    const mode = options.mode;
+    const checkpointThreadId = this.resolveCheckpointThreadId(threadId, mode);
+    clarificationService.cancelThread(checkpointThreadId);
+
+    const agent = this.buildAgentForStream(mode, checkpointThreadId, options);
+    const baseSystemPrompt = await this.buildSystemPrompt(
+      mode,
+      checkpointThreadId,
+      options,
+    );
+    const intent = await this.resolveCreateComponentIntent(message);
+    const intentGuidance = intent ? guidanceForIntentResult(intent) : null;
+    const systemPrompt = intentGuidance
+      ? `${baseSystemPrompt}\n\n---\n\n${intentGuidance}`
+      : baseSystemPrompt;
+
+    const config = {
+      configurable: {
+        thread_id: checkpointThreadId,
+        createTypeMode:
+          intent?.intent === "create_custom_component_type" &&
+          intent.confidence === "high",
+      },
+      recursionLimit: getRecursionLimit(),
+    };
+
+    await abandonInterruptedClarification(agent, config);
 
     const input = {
       messages: [
@@ -180,22 +218,70 @@ export class AgentService {
       ],
     };
 
-    const config = {
-      configurable: { thread_id: this.resolveCheckpointThreadId(threadId, mode) },
-      recursionLimit: getRecursionLimit(),
-    };
-
     let assistantText = "";
+    let awaitingClarification = false;
 
     for await (const event of streamCompiledAgent(agent, input, config)) {
       yield event;
+      if (event.event === "awaiting_clarification") {
+        awaitingClarification = true;
+      }
       if (event.event === "on_chat_model_stream") {
         const chunk = event.data?.chunk as { content?: unknown } | undefined;
         assistantText += streamChunkText(chunk?.content);
       }
     }
 
-    if (mode === "plan" && assistantText.trim()) {
+    if (!awaitingClarification && mode === "plan" && assistantText.trim()) {
+      yield { event: "plan_ready", data: { content: assistantText.trim() } };
+    }
+  }
+
+  async *resumeClarification(
+    threadId: string,
+    clarificationId: string,
+    answer: ClarificationAnswer,
+    options: ChatStreamOptions,
+  ): AsyncGenerator<AgentGraphStreamEvent> {
+    const mode = options.mode;
+    const checkpointThreadId = this.resolveCheckpointThreadId(threadId, mode);
+    const prepared = prepareResume(
+      clarificationService,
+      checkpointThreadId,
+      clarificationId,
+      answer,
+    );
+    if (!prepared.ok) {
+      throw new ClarificationResumeError(prepared.status, prepared.detail);
+    }
+
+    const agent = this.buildAgentForStream(mode, checkpointThreadId, options);
+    const config = {
+      configurable: { thread_id: checkpointThreadId },
+      recursionLimit: getRecursionLimit(),
+    };
+
+    let assistantText = "";
+    let awaitingClarification = false;
+
+    for await (const event of streamCompiledAgent(
+      agent,
+      buildResumeCommand(prepared.serialized),
+      config,
+    )) {
+      yield event;
+      if (event.event === "awaiting_clarification") {
+        awaitingClarification = true;
+      }
+      if (event.event === "on_chat_model_stream") {
+        const chunk = event.data?.chunk as { content?: unknown } | undefined;
+        assistantText += streamChunkText(chunk?.content);
+      }
+    }
+
+    clarificationService.markAnswered(checkpointThreadId, clarificationId);
+
+    if (!awaitingClarification && mode === "plan" && assistantText.trim()) {
       yield { event: "plan_ready", data: { content: assistantText.trim() } };
     }
   }

@@ -2,6 +2,7 @@
 import { computed, onMounted, ref, watch } from "vue";
 import { type ToolEvent } from "@agent-flow/shared-ui";
 import ChatPanel from "../components/chat/ChatPanel.vue";
+import ClarificationCard from "../components/chat/ClarificationCard.vue";
 import ResizableSplitLayout from "../components/chat/ResizableSplitLayout.vue";
 import type { ChatSendPayload } from "../components/chat/ChatInputWithSlash.vue";
 import {
@@ -10,6 +11,10 @@ import {
   openChatStream,
   shouldShowThinking,
 } from "../composables/useChatStream";
+import {
+  useClarification,
+  type ClarificationAnswer,
+} from "../composables/useClarification";
 import { useChatMemory } from "../composables/useChatMemory";
 import { useAutoThreadTitle } from "../composables/useAutoThreadTitle";
 import { removeThreadSkill, toggleThreadSkill } from "../composables/useChatThreadMeta";
@@ -21,6 +26,7 @@ import WorkflowConfigDrawer from "../components/workflow/WorkflowConfigDrawer.vu
 import WorkspaceDesigner from "../components/workflow/WorkspaceDesigner.vue";
 import WorkspaceApprovalCard from "../components/workflow/WorkspaceApprovalCard.vue";
 import AgentflowFileApprovalCard from "../components/workflow/AgentflowFileApprovalCard.vue";
+import ComponentTypeApprovalCard from "../components/workflow/ComponentTypeApprovalCard.vue";
 import WorkflowSidebar from "../components/workflow/WorkflowSidebar.vue";
 import WorkflowTemplatePicker from "../components/workflow/WorkflowTemplatePicker.vue";
 import ProjectUnderstandPanel from "../components/ua/ProjectUnderstandPanel.vue";
@@ -39,6 +45,11 @@ import {
   type WorkflowRunState,
   type WorkflowSummary,
 } from "../composables/useWorkflow";
+import {
+  handleCreateChatThread,
+  handleSelectChatThread,
+  handleWorkflowContextChange,
+} from "./workflowRunChatActions";
 
 defineProps<{ workspace: string }>();
 
@@ -84,10 +95,34 @@ const configSaving = ref(false);
 
 const chatMode = ref<"step" | "free">("step");
 const stepChatFileMode = ref(false);
+const lastFileChatPaths = ref<string[]>([]);
 const chatPanelRef = ref<InstanceType<typeof ChatPanel> | null>(null);
 const skillCatalog = ref<{ name: string; description: string }[]>([]);
 const threadMeta = ref<{ skills: string[] }>({ skills: [] });
 let syncingThreadMeta = false;
+
+const clarification = useClarification({
+  getResumeExtras: () => {
+    const extras: {
+      mode?: "agent";
+      skills?: string[];
+      stepId?: string;
+      workflowId?: string;
+      paths?: string[];
+    } = {
+      mode: "agent",
+      skills: threadMeta.value.skills.length ? threadMeta.value.skills : undefined,
+      workflowId: activeWorkflowId.value ?? undefined,
+    };
+    if (chatMode.value === "step" && activeStepId.value) {
+      extras.stepId = activeStepId.value;
+    }
+    if (stepChatFileMode.value && lastFileChatPaths.value.length) {
+      extras.paths = lastFileChatPaths.value;
+    }
+    return extras;
+  },
+});
 
 void fetchSkillCatalog()
   .then((skills) => {
@@ -206,11 +241,13 @@ const workspaceResolved = ref(false);
 const {
   pendingWorkspace: pendingWorkspaceApproval,
   pendingFile: pendingAgentflowFileApproval,
+  pendingComponentType: pendingComponentTypeApproval,
   approvalError: workspaceApprovalError,
   approving: workspaceApproving,
   handleToolEndOutput,
   approvePendingWorkspace: onApproveWorkspaceChange,
   approvePendingFile: onApproveAgentflowFileChange,
+  approvePendingComponentType: onApproveComponentTypeChange,
   cancelPending: onCancelWorkspaceChange,
 } = useWorkspaceApproval(
   async (workflowId, stepId) => {
@@ -321,13 +358,18 @@ async function ensureActiveChatThread() {
 }
 
 async function onSelectChatThread(id: string) {
-  const meta = await activeChatMemory.value.selectThread(id);
-  applyThreadSkills(meta?.skills);
+  await handleSelectChatThread(id, {
+    cancelPending: clarification.cancelPending,
+    selectThread: (threadId) => activeChatMemory.value.selectThread(threadId),
+    applyThreadSkills,
+  });
 }
 
 function onCreateChatThread() {
-  void activeChatMemory.value.createThread("New Chat").then(() => {
-    syncThreadSkillsFromActiveThread();
+  handleCreateChatThread({
+    cancelPending: clarification.cancelPending,
+    createThread: (title) => activeChatMemory.value.createThread(title),
+    syncThreadSkills: syncThreadSkillsFromActiveThread,
   });
 }
 
@@ -455,6 +497,7 @@ watch(
 );
 
 watch(chatMode, () => {
+  clarification.cancelPending();
   void ensureActiveChatThread();
 });
 
@@ -484,6 +527,7 @@ watch(
 watch(
   () => [selectedWorkflowId.value, activeStepId.value] as const,
   async ([workflowId, stepId]) => {
+    handleWorkflowContextChange(clarification.cancelPending);
     fetchedWorkspace.value = null;
     workspaceResolved.value = false;
     if (!workflowId || !stepId) {
@@ -718,6 +762,7 @@ async function onStepSend(payload: ChatSendPayload) {
     actionError.value = err instanceof Error ? err.message : String(err);
     return;
   }
+  clarification.cancelPending();
   stepChatMemory.addUserMessage(
     payload.text,
     payload.attachments.map((a) => a.path),
@@ -732,6 +777,9 @@ async function onStepSend(payload: ChatSendPayload) {
     const skills = threadMeta.value.skills.length ? threadMeta.value.skills : undefined;
     const useFileChat = payload.attachments.length > 0;
     stepChatFileMode.value = useFileChat;
+    lastFileChatPaths.value = useFileChat
+      ? payload.attachments.map((a) => a.path)
+      : [];
 
     const stream = await openChatStream(
       useFileChat
@@ -758,6 +806,7 @@ async function onStepSend(payload: ChatSendPayload) {
     await consumeChatStream(stream, {
       memory: stepChatMemory,
       mode: "agent",
+      onClarification: clarification.applyClarificationEvent,
       onMessageChunk: (content) => {
         liveOutput.value[stepId] = (liveOutput.value[stepId] ?? "") + content;
       },
@@ -829,6 +878,9 @@ async function onFreeSend(payload: ChatSendPayload) {
     return;
   }
 
+  clarification.cancelPending();
+  stepChatFileMode.value = false;
+  lastFileChatPaths.value = [];
   freeChatMemory.addUserMessage(payload.text, payload.attachments.map((a) => a.path));
   freeChatMemory.beginAssistantReply();
   await freeAutoTitle.setPreviewTitle(threadId, payload.text);
@@ -847,6 +899,7 @@ async function onFreeSend(payload: ChatSendPayload) {
     await consumeChatStream(stream, {
       memory: freeChatMemory,
       mode: "agent",
+      onClarification: clarification.applyClarificationEvent,
       onToolEnd: (event) => {
         handleWriteFileToolEnd(event);
         handleToolEndOutput(event.output);
@@ -859,6 +912,67 @@ async function onFreeSend(payload: ChatSendPayload) {
     actionError.value = message;
   } finally {
     freeSending.value = false;
+  }
+}
+
+async function onClarificationSubmit(answer: ClarificationAnswer) {
+  const memory = chatMode.value === "step" ? stepChatMemory : freeChatMemory;
+  const stepId = activeStepId.value;
+  const isStep = chatMode.value === "step";
+
+  if (isStep) {
+    running.value = true;
+  } else {
+    freeSending.value = true;
+  }
+  actionError.value = null;
+
+  try {
+    const stream = await clarification.submit(answer);
+    const result = await consumeChatStream(stream, {
+      memory,
+      mode: "agent",
+      onClarification: clarification.applyClarificationEvent,
+      onMessageChunk: isStep && stepId
+        ? (content) => {
+            liveOutput.value[stepId] = (liveOutput.value[stepId] ?? "") + content;
+          }
+        : undefined,
+      onToolEnd: async (event) => {
+        handleWriteFileToolEnd(event);
+        if (event.output) {
+          handleToolEndOutput(event.output);
+        }
+        if (
+          isStep &&
+          stepId &&
+          event.name &&
+          WORKSPACE_MUTATING_TOOLS.has(event.name) &&
+          event.ok !== false &&
+          activeWorkflowId.value &&
+          event.output &&
+          !parsePendingWorkspaceApproval(event.output)
+        ) {
+          await refreshWorkspaceForStep(activeWorkflowId.value, stepId);
+        }
+      },
+    });
+    if (!result.awaitingClarification) {
+      clarification.markAnswered();
+    }
+    if (isStep && activeWorkflowId.value) {
+      state.value = await fetchState(activeWorkflowId.value);
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    clarification.restorePending(message);
+    actionError.value = message;
+  } finally {
+    if (isStep) {
+      running.value = false;
+    } else {
+      freeSending.value = false;
+    }
   }
 }
 </script>
@@ -966,6 +1080,7 @@ async function onFreeSend(payload: ChatSendPayload) {
               :workspace="resolvedWorkspace"
               :api="panelApi"
               :runtime="panelRuntime"
+              :workflow-id="selectedWorkflowId"
             />
             <p
               v-else-if="workspaceResolved"
@@ -1042,11 +1157,21 @@ async function onFreeSend(payload: ChatSendPayload) {
                   Chat with agent to run {{ currentStep?.title ?? "this step" }}.
                 </div>
                 <div v-if="activeShowThinking" class="text-gray-400 text-xs">Thinking…</div>
+                <ClarificationCard
+                  v-if="clarification.pending.value"
+                  :question="clarification.pending.value.question"
+                  :options="clarification.pending.value.options"
+                  :allow-multiple="clarification.pending.value.allow_multiple"
+                  :allow-free-text="clarification.pending.value.allow_free_text"
+                  :status="clarification.cardStatus.value"
+                  :error="clarification.error.value"
+                  @submit="onClarificationSubmit"
+                />
               </template>
 
               <template #approval>
                 <div
-                  v-if="pendingWorkspaceApproval || pendingAgentflowFileApproval"
+                  v-if="pendingWorkspaceApproval || pendingAgentflowFileApproval || pendingComponentTypeApproval"
                   class="shrink-0 px-4 py-2 border-t border-amber-100 bg-white space-y-1"
                 >
                   <WorkspaceApprovalCard
@@ -1068,6 +1193,17 @@ async function onFreeSend(payload: ChatSendPayload) {
                     :after="pendingAgentflowFileApproval.after"
                     :approving="workspaceApproving"
                     @approve="onApproveAgentflowFileChange"
+                    @cancel="onCancelWorkspaceChange"
+                  />
+                  <ComponentTypeApprovalCard
+                    v-if="pendingComponentTypeApproval"
+                    compact
+                    :summary="pendingComponentTypeApproval.summary"
+                    :scope="pendingComponentTypeApproval.scope"
+                    :type-def="pendingComponentTypeApproval.typeDef"
+                    :overwrite="pendingComponentTypeApproval.overwrite"
+                    :approving="workspaceApproving"
+                    @approve="onApproveComponentTypeChange"
                     @cancel="onCancelWorkspaceChange"
                   />
                   <p v-if="workspaceApprovalError" class="text-xs text-red-600">

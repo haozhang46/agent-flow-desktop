@@ -5,11 +5,19 @@ import { streamChunkText } from "./streamChunk";
 import { getProjectCheckpointer } from "../chatMemory/checkpointer";
 import type { StepEvent } from "../executors/types";
 import { AgentStreamFilter } from "./agentStreamFilter";
+import { clarificationService } from "./clarificationService";
+import type { ClarificationAnswer } from "./clarificationTypes";
 import { buildFileChatLangChainTools } from "./fileChatTools";
 import { buildFileChatSystemPrompt } from "./prompt";
 import { getRecursionLimit } from "./recursionLimit";
-import { streamCompiledAgent, type AgentGraphStreamEvent } from "./streamAgentGraph";
-
+import {
+  abandonInterruptedClarification,
+  buildResumeCommand,
+  ClarificationResumeError,
+  prepareResume,
+  streamCompiledAgent,
+  type AgentGraphStreamEvent,
+} from "./streamAgentGraph";
 const DEEPSEEK_BASE_URL = "https://api.deepseek.com/v1";
 
 export type FileChatRequest = {
@@ -23,13 +31,76 @@ export type FileChatRequest = {
   apiKey: string;
 };
 
+export type FileChatClarificationEvent = {
+  type: "clarification";
+  clarification_id: string;
+  thread_id: string;
+  question: string;
+  options: Array<{ id: string; label: string }>;
+  allow_multiple: boolean;
+  allow_free_text: boolean;
+  status: "pending";
+};
+
+export type FileChatStreamEvent =
+  | StepEvent
+  | FileChatClarificationEvent
+  | { type: "done"; awaiting_clarification?: boolean };
+
 type StreamEvent = AgentGraphStreamEvent;
+
+function buildFileChatAgent(req: Pick<
+  FileChatRequest,
+  "workspaceRoot" | "projectRoot" | "paths" | "apiKey" | "checkpointThreadId"
+>) {
+  const model = new ChatOpenAI({
+    model: "deepseek-chat",
+    apiKey: req.apiKey,
+    streaming: true,
+    configuration: { baseURL: DEEPSEEK_BASE_URL },
+  });
+
+  const tools = buildFileChatLangChainTools({
+    workspaceRoot: req.workspaceRoot,
+    allowedPaths: req.paths,
+    clarificationThreadId: req.checkpointThreadId,
+  });
+
+  const checkpointer = getProjectCheckpointer(req.projectRoot);
+  return buildStreamingReactAgent({
+    llm: model,
+    tools,
+    checkpointer,
+  });
+}
 
 async function* mapStreamToStepEvents(
   stream: AsyncIterable<StreamEvent>,
-): AsyncIterable<StepEvent> {
+): AsyncIterable<FileChatStreamEvent> {
   const streamFilter = new AgentStreamFilter("agent");
+  let awaitingClarification = false;
+
   for await (const event of stream) {
+    if (event.event === "clarification") {
+      const data = event.data ?? {};
+      yield {
+        type: "clarification",
+        clarification_id: String(data.clarification_id ?? ""),
+        thread_id: String(data.thread_id ?? ""),
+        question: String(data.question ?? ""),
+        options: Array.isArray(data.options)
+          ? (data.options as Array<{ id: string; label: string }>)
+          : [],
+        allow_multiple: Boolean(data.allow_multiple),
+        allow_free_text: data.allow_free_text !== false,
+        status: "pending",
+      };
+      continue;
+    }
+    if (event.event === "awaiting_clarification") {
+      awaitingClarification = true;
+      continue;
+    }
     if (event.event === "on_chat_model_stream") {
       const content = streamChunkText(event.data?.chunk?.content);
       if (content) {
@@ -67,35 +138,28 @@ async function* mapStreamToStepEvents(
   for (const action of streamFilter.finish()) {
     yield { type: "message", content: action.content };
   }
-  yield { type: "done" };
+  yield awaitingClarification
+    ? { type: "done", awaiting_clarification: true }
+    : { type: "done" };
 }
 
-export async function* streamFileChat(req: FileChatRequest): AsyncIterable<StepEvent> {
+export async function* streamFileChat(req: FileChatRequest): AsyncIterable<FileChatStreamEvent> {
   if (!req.paths.length) {
     yield { type: "message", content: "Error: paths required" };
     yield { type: "done" };
     return;
   }
 
+  clarificationService.cancelThread(req.checkpointThreadId);
+
   const systemPrompt = await buildFileChatSystemPrompt(req.paths, req.skills ?? []);
-  const model = new ChatOpenAI({
-    model: "deepseek-chat",
-    apiKey: req.apiKey,
-    streaming: true,
-    configuration: { baseURL: DEEPSEEK_BASE_URL },
-  });
+  const agent = buildFileChatAgent(req);
+  const config = {
+    configurable: { thread_id: req.checkpointThreadId },
+    recursionLimit: getRecursionLimit(),
+  };
 
-  const tools = buildFileChatLangChainTools({
-    workspaceRoot: req.workspaceRoot,
-    allowedPaths: req.paths,
-  });
-
-  const checkpointer = getProjectCheckpointer(req.projectRoot);
-  const agent = buildStreamingReactAgent({
-    llm: model,
-    tools,
-    checkpointer,
-  });
+  await abandonInterruptedClarification(agent, config);
 
   yield* mapStreamToStepEvents(
     streamCompiledAgent(
@@ -106,10 +170,37 @@ export async function* streamFileChat(req: FileChatRequest): AsyncIterable<StepE
           new HumanMessage(req.message.trim() || "Help me with the attached file(s)."),
         ],
       },
+      config,
+    ),
+  );
+}
+
+export async function* resumeFileChatClarification(params: {
+  request: Omit<FileChatRequest, "message">;
+  clarificationId: string;
+  answer: ClarificationAnswer;
+}): AsyncIterable<FileChatStreamEvent> {
+  const { request, clarificationId, answer } = params;
+  const prepared = prepareResume(
+    clarificationService,
+    request.checkpointThreadId,
+    clarificationId,
+    answer,
+  );
+  if (!prepared.ok) {
+    throw new ClarificationResumeError(prepared.status, prepared.detail);
+  }
+
+  const agent = buildFileChatAgent(request);
+  yield* mapStreamToStepEvents(
+    streamCompiledAgent(
+      agent,
+      buildResumeCommand(prepared.serialized),
       {
-        configurable: { thread_id: req.checkpointThreadId },
+        configurable: { thread_id: request.checkpointThreadId },
         recursionLimit: getRecursionLimit(),
       },
     ),
   );
+  clarificationService.markAnswered(request.checkpointThreadId, clarificationId);
 }

@@ -4,7 +4,8 @@ import { buildChatSystemPrompt } from "../../electron/agent/prompt";
 describe("buildChatSystemPrompt", () => {
   it("includes ask preamble", async () => {
     const prompt = await buildChatSystemPrompt("ask", "/tmp/project", []);
-    expect(prompt).toContain("cannot use tools");
+    expect(prompt).toContain("ask_question");
+    expect(prompt).toContain("Tools are available");
   });
 
   it("includes plan read-only guidance", async () => {
@@ -17,5 +18,12 @@ describe("buildChatSystemPrompt", () => {
     expect(prompt).toContain("autonomous dev agent");
     expect(prompt).toContain("Agent Flow context");
     expect(prompt).toContain("Available tools");
+  });
+
+  it("includes custom component type registration guidance for agent mode", async () => {
+    const prompt = await buildChatSystemPrompt("agent", "/tmp/project", []);
+    expect(prompt).toContain("workspace_register_component_type");
+    expect(prompt).toContain("Custom workspace component types");
+    expect(prompt).toContain("project | workflow | global");
   });
 });

@@ -1,10 +1,17 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { loadWorkflow, listWorkflows } from "./loader";
+import { listComponentTypes } from "./componentTypeStore";
 import { validateWorkspace, type WorkspaceDefinition } from "./workspaceSchema";
 
 const WORKFLOWS_DIR = ".agentflow/workflows";
 const LEGACY_WORKSPACES_DIR = ".agentflow/workspaces";
+
+export type WorkspaceLoaderContext = {
+  workspaceRoot: string;
+  userDataRoot: string;
+  workflowId?: string | null;
+};
 
 export function workspacesDir(
   projectRoot: string,
@@ -26,18 +33,37 @@ export function workspacePath(
   return path.join(workspacesDir(projectRoot, workflowId, isLegacy), `${stepId}.workspace.json`);
 }
 
-export async function loadWorkspace(filePath: string): Promise<WorkspaceDefinition> {
+async function validateWithCustomTypes(
+  def: unknown,
+  ctx?: WorkspaceLoaderContext,
+): Promise<WorkspaceDefinition> {
+  if (!ctx) {
+    return validateWorkspace(def);
+  }
+  const customTypes = await listComponentTypes({
+    workspaceRoot: ctx.workspaceRoot,
+    userDataRoot: ctx.userDataRoot,
+    workflowId: ctx.workflowId,
+  });
+  return validateWorkspace(def, { customTypes });
+}
+
+export async function loadWorkspace(
+  filePath: string,
+  ctx?: WorkspaceLoaderContext,
+): Promise<WorkspaceDefinition> {
   const raw = await fs.readFile(filePath, "utf8");
   const parsed = JSON.parse(raw) as unknown;
-  return validateWorkspace(parsed);
+  return validateWithCustomTypes(parsed, ctx);
 }
 
 export async function saveWorkspace(
   filePath: string,
   def: unknown,
   expectedStepId?: string,
+  ctx?: WorkspaceLoaderContext,
 ): Promise<WorkspaceDefinition> {
-  const validated = validateWorkspace(def);
+  const validated = await validateWithCustomTypes(def, ctx);
   if (expectedStepId !== undefined && validated.stepId !== expectedStepId) {
     throw new Error(`Workspace stepId mismatch: expected ${expectedStepId}, got ${validated.stepId}`);
   }

@@ -1,4 +1,6 @@
 import { z } from "zod";
+import type { PropField } from "../../shared/workspaceRegistryData";
+import type { CustomComponentType } from "./customComponentTypeSchema";
 
 export const LayoutSchema = z.enum(["tabs", "stack"]);
 
@@ -102,7 +104,41 @@ export type ComponentType = keyof typeof COMPONENT_PROPS;
 export type WorkspaceDefinition = z.infer<typeof WorkspaceSchema>;
 export type WorkspaceComponent = z.infer<typeof WorkspaceComponentSchema>;
 
-export function validateWorkspace(def: unknown): WorkspaceDefinition {
+export type ValidateWorkspaceOptions = {
+  customTypes?: Map<string, z.ZodTypeAny> | CustomComponentType[];
+};
+
+export function zodFromPropsFields(fields: PropField[]): z.ZodTypeAny {
+  const shape: Record<string, z.ZodTypeAny> = {};
+  for (const f of fields) {
+    let s: z.ZodTypeAny =
+      f.type === "boolean"
+        ? z.boolean()
+        : f.type === "string[]" || f.type === "file-list" || f.type === "skills"
+          ? z.array(z.string())
+          : z.string(); // select / string / langflow-flow as string for Phase 1
+    if (!f.required) s = s.optional();
+    shape[f.key] = s;
+  }
+  return z.object(shape).passthrough();
+}
+
+function resolveCustomPropsSchema(
+  type: string,
+  customTypes?: ValidateWorkspaceOptions["customTypes"],
+): z.ZodTypeAny | undefined {
+  if (!customTypes) return undefined;
+  if (customTypes instanceof Map) {
+    return customTypes.get(type);
+  }
+  const def = customTypes.find((t) => t.type === type);
+  return def ? zodFromPropsFields(def.propsFields) : undefined;
+}
+
+export function validateWorkspace(
+  def: unknown,
+  options?: ValidateWorkspaceOptions,
+): WorkspaceDefinition {
   const workspace = WorkspaceSchema.parse(def);
   const seen = new Set<string>();
   const issues: z.ZodIssue[] = [];
@@ -118,7 +154,9 @@ export function validateWorkspace(def: unknown): WorkspaceDefinition {
     }
     seen.add(comp.id);
 
-    const propsSchema = COMPONENT_PROPS[comp.type as ComponentType];
+    const builtInSchema = COMPONENT_PROPS[comp.type as ComponentType];
+    const propsSchema =
+      builtInSchema ?? resolveCustomPropsSchema(comp.type, options?.customTypes);
     if (!propsSchema) {
       issues.push({
         code: z.ZodIssueCode.custom,

@@ -34,6 +34,15 @@ vi.mock("../../src/workspace/registryComponents", async (importOriginal) => {
   };
 });
 
+vi.mock("../../src/composables/useWorkspaceConfig", () => ({
+  useWorkspaceConfig: () => ({
+    fetchRegistry: async () => ({ components: [] }),
+    fetchWorkspace: async () => ({ version: 1, stepId: "", layout: "tabs", components: [] }),
+    saveWorkspace: async () => ({}),
+    listWorkspaces: async () => ({ workflowId: "", stepIds: [] }),
+  }),
+}));
+
 const mockApi = {} as PanelApi;
 
 const tabsWorkspace: WorkspaceDefinition = {
@@ -91,7 +100,7 @@ describe("WorkflowPanelRenderer", () => {
     expect(wrapper.text()).toContain("Section Beta");
   });
 
-  it("shows inline error for unknown widget type", async () => {
+  it("shows missing-type placeholder for unknown widget type", async () => {
     const wrapper = mount(WorkflowPanelRenderer, {
       props: {
         workspace: {
@@ -105,8 +114,8 @@ describe("WorkflowPanelRenderer", () => {
     });
     await flushPromises();
 
-    const error = wrapper.find('[data-testid="unknown-widget-error"]');
-    expect(error.exists()).toBe(true);
-    expect(error.text()).toContain("Unknown widget type: not-real");
+    const placeholder = wrapper.find('[data-testid="missing-type-placeholder"]');
+    expect(placeholder.exists()).toBe(true);
+    expect(placeholder.text()).toMatch(/missing|not-real/i);
   });
 });

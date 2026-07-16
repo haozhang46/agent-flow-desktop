@@ -70,6 +70,40 @@ export async function openChatStream(request: ChatStreamRequest): Promise<AsyncG
   return postSse("/v1/chat", body, "Chat request failed");
 }
 
+export type ClarificationAnswerBody = {
+  selected_option_ids: string[];
+  free_text?: string;
+  paths?: string[];
+  mode?: ChatMode;
+  skills?: string[];
+  stepId?: string;
+  workflowId?: string;
+};
+
+export async function submitClarification(
+  threadId: string,
+  clarificationId: string,
+  body: ClarificationAnswerBody,
+): Promise<AsyncGenerator<SseEvent>> {
+  const payload: Record<string, unknown> = {
+    selected_option_ids: body.selected_option_ids,
+  };
+  if (body.free_text != null && body.free_text !== "") {
+    payload.free_text = body.free_text;
+  }
+  if (body.paths?.length) payload.paths = body.paths;
+  if (body.mode) payload.mode = body.mode;
+  if (body.skills?.length) payload.skills = body.skills;
+  if (body.stepId) payload.stepId = body.stepId;
+  if (body.workflowId) payload.workflowId = body.workflowId;
+
+  return postSse(
+    `/v1/threads/${encodeURIComponent(threadId)}/clarifications/${encodeURIComponent(clarificationId)}`,
+    payload,
+    "Clarification failed",
+  );
+}
+
 export async function fetchSkillCatalog(): Promise<{ name: string; description: string }[]> {
   const res = await fetch(`${await getAgentApiBase()}/v1/skills?detailed=1`);
   if (!res.ok) throw new Error(`Skills fetch failed: ${res.status}`);

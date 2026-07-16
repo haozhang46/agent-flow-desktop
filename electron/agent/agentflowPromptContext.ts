@@ -1,4 +1,5 @@
 import fs from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import type { StructuredToolInterface } from "@langchain/core/tools";
 import { WORKSPACE_REGISTRY } from "../workflow/workspaceRegistry";
@@ -19,6 +20,8 @@ import {
   buildReadOnlyDesktopTools,
   type AgentToolContext,
 } from "./tools";
+import { buildAskQuestionTool } from "./askQuestionTool";
+import { clarificationService } from "./clarificationService";
 
 export type ChatMode = "ask" | "plan" | "agent";
 
@@ -28,7 +31,24 @@ export type AgentflowPromptOptions = {
   resourceServerUrl?: string | null;
   workflowId?: string;
   stepId?: string;
+  userDataRoot?: string;
+  /** When set, mounts ask_question closed over this thread id. */
+  clarificationThreadId?: string;
 };
+
+function resolveUserDataRoot(explicit?: string): string {
+  if (explicit?.trim()) return explicit.trim();
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { app } = require("electron") as { app?: { getPath?: (name: string) => string } };
+    if (typeof app?.getPath === "function") {
+      return app.getPath("userData");
+    }
+  } catch {
+    // not running under Electron
+  }
+  return path.join(os.homedir(), ".agentflow-desktop");
+}
 
 function toolContext(options: AgentflowPromptOptions): AgentToolContext {
   return {
@@ -36,14 +56,29 @@ function toolContext(options: AgentflowPromptOptions): AgentToolContext {
     resourceServerUrl: options.resourceServerUrl ?? null,
     workflowId: options.workflowId ?? null,
     stepId: options.stepId ?? null,
+    userDataRoot: resolveUserDataRoot(options.userDataRoot),
   };
+}
+
+function maybeAskQuestionTool(
+  clarificationThreadId: string | undefined,
+): StructuredToolInterface[] {
+  if (!clarificationThreadId) return [];
+  return [
+    buildAskQuestionTool({
+      threadId: clarificationThreadId,
+      service: clarificationService,
+    }),
+  ];
 }
 
 export function getToolsForMode(options: AgentflowPromptOptions): StructuredToolInterface[] {
   const ctx = toolContext(options);
-  if (options.mode === "ask") return [];
-  if (options.mode === "plan") return buildReadOnlyDesktopTools(ctx);
-  return buildDesktopLangChainTools(ctx);
+  const askTools = maybeAskQuestionTool(options.clarificationThreadId);
+
+  if (options.mode === "ask") return askTools;
+  if (options.mode === "plan") return [...buildReadOnlyDesktopTools(ctx), ...askTools];
+  return [...buildDesktopLangChainTools(ctx), ...askTools];
 }
 
 export function formatToolsCatalog(tools: StructuredToolInterface[]): string {
@@ -165,7 +200,11 @@ export async function buildAgentflowChatContext(
             step.id,
             isLegacy,
           );
-          const workspace = await loadWorkspace(filePath);
+          const workspace = await loadWorkspace(filePath, {
+            workspaceRoot: options.workspaceRoot,
+            userDataRoot: resolveUserDataRoot(options.userDataRoot),
+            workflowId: workflow.id,
+          });
           parts.push(
             "",
             "### Step workspace UI",
@@ -207,7 +246,21 @@ export async function buildAgentflowChatContext(
     parts.push(
       "",
       "### Workspace component registry (for workspace_* tools)",
+      "Built-in types (always available):",
       formatRegistryHint(),
+    );
+  }
+
+  if (options.mode === "agent") {
+    parts.push(
+      "",
+      "### Custom workspace component types",
+      "You can register **new declarative component types** (not Vue SFCs) when the user needs a panel that builtins do not cover.",
+      "- Tool: `workspace_register_component_type` — proposes a type JSON; returns pending approval; **does not write disk** until the user confirms the Desktop approval card.",
+      "- Schema (Phase 1): `{ type, label, description, category, defaultProps, propsFields }` where `propsFields` are form fields (`string` | `boolean` | `select` | `string[]` | …).",
+      "- Scope (user chooses via `ask_question` before register): `project` (`.agentflow/component-types/`), `workflow` (under that workflow), or `global` (app userData).",
+      "- After approval: call `workspace_list_registry` / `workspace_add_component` to use the new type on a step.",
+      "- Prefer builtins when they fit; do not reuse built-in type ids (they are reserved).",
     );
   }
 

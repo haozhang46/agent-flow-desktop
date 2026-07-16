@@ -14,6 +14,7 @@ import {
   type PanelApi,
 } from "../../workspace/registryComponents";
 import { bindWidgetProps } from "../../workspace/widgetBindProps";
+import DeclarativePanelWidget from "../../workspace/widgets/DeclarativePanelWidget.vue";
 import WorkspacePropFields from "./WorkspacePropFields.vue";
 
 const RUNTIME_ONLY_TYPES = new Set(["agent-run", "langflow-panel"]);
@@ -59,9 +60,11 @@ const selectedComponent = computed(
   () => components.value.find((c) => c.id === selectedComponentId.value) ?? null,
 );
 
-const selectedEntry = computed(() =>
-  selectedComponent.value ? registryEntry(selectedComponent.value.type) : undefined,
-);
+const selectedEntry = computed(() => {
+  const type = selectedComponent.value?.type;
+  if (!type) return undefined;
+  return registry.value.find((e) => e.type === type) ?? registryEntry(type);
+});
 
 const previewResolved = shallowRef<Component | null>(null);
 
@@ -74,23 +77,41 @@ const previewKey = computed(() => {
 const previewBindProps = computed(() => {
   const comp = selectedComponent.value;
   if (!comp) return {};
-  return bindWidgetProps(comp, props.panelApi ?? ({} as PanelApi));
+  if (isRegisteredWidgetType(comp.type)) {
+    return bindWidgetProps(comp, props.panelApi ?? ({} as PanelApi));
+  }
+  const entry = selectedEntry.value;
+  if (!entry) {
+    return {
+      propsFields: [],
+      modelProps: comp.props,
+      missingType: comp.type,
+    };
+  }
+  return {
+    propsFields: entry.propsFields,
+    modelProps: comp.props,
+  };
 });
 
 watch(
   () => selectedComponent.value?.type,
   async (type) => {
     previewResolved.value = null;
-    if (!type || !isRegisteredWidgetType(type) || RUNTIME_ONLY_TYPES.has(type)) return;
-    const loader = WIDGET_COMPONENTS[type];
-    const mod = await loader();
-    previewResolved.value = mod.default;
+    if (!type || RUNTIME_ONLY_TYPES.has(type)) return;
+    if (isRegisteredWidgetType(type)) {
+      const loader = WIDGET_COMPONENTS[type];
+      const mod = await loader();
+      previewResolved.value = mod.default;
+      return;
+    }
+    previewResolved.value = DeclarativePanelWidget;
   },
   { immediate: true },
 );
 
-function isUnknownType(type: string): boolean {
-  return !isRegisteredWidgetType(type);
+function isDeclarativePreview(type: string): boolean {
+  return !isRegisteredWidgetType(type) && !RUNTIME_ONLY_TYPES.has(type);
 }
 
 function isRuntimeOnlyType(type: string): boolean {
@@ -119,7 +140,7 @@ watch(
         ? initialStepId
         : (props.steps[0]?.id ?? "");
     try {
-      const res = await fetchRegistry();
+      const res = await fetchRegistry(workflowId);
       registry.value = res.components;
     } catch {
       registry.value = WORKSPACE_REGISTRY;
@@ -387,14 +408,7 @@ async function onSave() {
           </div>
           <template v-else>
             <div
-              v-if="isUnknownType(selectedComponent.type)"
-              class="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700"
-              data-testid="unknown-widget-error"
-            >
-              Unknown widget type: {{ selectedComponent.type }}
-            </div>
-            <div
-              v-else-if="isRuntimeOnlyType(selectedComponent.type)"
+              v-if="isRuntimeOnlyType(selectedComponent.type)"
               class="rounded border border-gray-200 bg-gray-50 p-4 text-xs text-gray-600"
               data-testid="preview-runtime-placeholder"
             >
@@ -402,7 +416,7 @@ async function onSave() {
             </div>
             <component
               :is="previewResolved"
-              v-else-if="previewResolved"
+              v-else-if="previewResolved && (isRegisteredWidgetType(selectedComponent.type) || isDeclarativePreview(selectedComponent.type))"
               :key="previewKey"
               data-testid="preview-mount"
               :data-preview-key="previewKey"

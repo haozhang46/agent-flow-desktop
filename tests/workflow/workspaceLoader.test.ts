@@ -9,6 +9,7 @@ import {
   saveWorkspace,
   listWorkspaces,
 } from "../../electron/workflow/workspaceLoader";
+import { saveComponentType } from "../../electron/workflow/componentTypeStore";
 
 const FE_DEV_WORKSPACE = {
   version: 1,
@@ -121,5 +122,47 @@ describe("workspaceLoader I/O", () => {
   it("listWorkspaces returns empty when directory missing", async () => {
     const ids = await listWorkspaces(tmp, "missing-wf", false);
     expect(ids).toEqual([]);
+  });
+
+  it("saveWorkspace/loadWorkspace accept custom component types via loader context", async () => {
+    const userData = await fs.mkdtemp(path.join(os.tmpdir(), "af-ws-ud-"));
+    try {
+      await saveComponentType({
+        workspaceRoot: tmp,
+        userDataRoot: userData,
+        scope: "project",
+        typeDef: {
+          type: "my-checklist",
+          label: "Checklist",
+          description: "d",
+          category: "custom",
+          defaultProps: {},
+          propsFields: [{ key: "title", label: "Title", type: "string" }],
+        },
+      });
+      const def = {
+        version: 1 as const,
+        stepId: "fe-dev",
+        layout: "tabs" as const,
+        components: [
+          { id: "check", type: "my-checklist", props: { title: "Ship it" } },
+        ],
+      };
+      const ctx = {
+        workspaceRoot: tmp,
+        userDataRoot: userData,
+        workflowId: "wf",
+      };
+      const filePath = workspacePath(tmp, "wf", "fe-dev", false);
+      await expect(saveWorkspace(filePath, def, "fe-dev")).rejects.toThrow(
+        /Unknown component type/,
+      );
+      await saveWorkspace(filePath, def, "fe-dev", ctx);
+      const loaded = await loadWorkspace(filePath, ctx);
+      expect(loaded.components[0]?.type).toBe("my-checklist");
+      expect(loaded.components[0]?.props).toEqual({ title: "Ship it" });
+    } finally {
+      await fs.rm(userData, { recursive: true, force: true });
+    }
   });
 });

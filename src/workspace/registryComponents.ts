@@ -51,6 +51,15 @@ export const WIDGET_COMPONENTS: Record<string, () => Promise<{ default: Componen
   "langflow-panel": () => import("./widgets/LangflowPanelWidget.vue"),
 };
 
+/** Fallback renderer for custom / unknown types not in WIDGET_COMPONENTS. */
+export const loadDeclarativePanelWidget = (): Promise<{ default: Component }> =>
+  import("./widgets/DeclarativePanelWidget.vue");
+
 export function isRegisteredWidgetType(type: string): boolean {
   return type in WIDGET_COMPONENTS;
+}
+
+/** Built-in Vue widget if registered; otherwise DeclarativePanelWidget. */
+export function resolveWidgetLoader(type: string): () => Promise<{ default: Component }> {
+  return WIDGET_COMPONENTS[type] ?? loadDeclarativePanelWidget;
 }
