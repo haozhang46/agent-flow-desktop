@@ -1,3 +1,5 @@
+import fs from "node:fs/promises";
+import path from "node:path";
 import { tool } from "@langchain/core/tools";
 import { z } from "zod";
 import { getActiveWorkflowId } from "../workflow/loader";
@@ -6,13 +8,23 @@ import {
   resolveWorkflowLegacy,
   workspacePath,
 } from "../workflow/workspaceLoader";
-import { WORKSPACE_PENDING_PREFIX } from "../../shared/agentflowApprovalConstants";
+import {
+  COMPONENT_TYPE_PENDING_PREFIX,
+  WORKSPACE_PENDING_PREFIX,
+} from "../../shared/agentflowApprovalConstants";
 import { WORKSPACE_REGISTRY } from "../workflow/workspaceRegistry";
+import {
+  componentTypesDir,
+  mergeWorkspaceRegistry,
+  type ComponentTypeScope,
+} from "../workflow/componentTypeStore";
+import { parseCustomComponentType } from "../workflow/customComponentTypeSchema";
 import type { WorkspaceComponent, WorkspaceDefinition } from "../workflow/workspaceSchema";
 import { LayoutSchema, validateWorkspace } from "../workflow/workspaceSchema";
 
 export type WorkspaceToolContext = {
   workspaceRoot: string;
+  userDataRoot: string;
   workflowId?: string | null;
   stepId?: string | null;
 };
@@ -158,21 +170,100 @@ export function buildWorkspaceLangChainTools(ctx: WorkspaceToolContext) {
     ),
     tool(
       async () => {
-        const entries = WORKSPACE_REGISTRY.map((entry) => ({
-          type: entry.type,
-          label: entry.label,
-          description: entry.description,
-          category: entry.category,
-          defaultProps: entry.defaultProps,
-          propsFields: entry.propsFields,
-        }));
-        return JSON.stringify({ components: entries }, null, 2);
+        const entries = await mergeWorkspaceRegistry({
+          workspaceRoot: ctx.workspaceRoot,
+          userDataRoot: ctx.userDataRoot,
+          workflowId: ctx.workflowId,
+        });
+        return JSON.stringify(
+          {
+            components: entries.map((entry) => ({
+              type: entry.type,
+              label: entry.label,
+              description: entry.description,
+              category: entry.category,
+              defaultProps: entry.defaultProps,
+              propsFields: entry.propsFields,
+            })),
+          },
+          null,
+          2,
+        );
       },
       {
         name: "workspace_list_registry",
         description:
-          "List valid workspace component types and prop field hints from the registry. Call before workspace_add_component.",
+          "List valid workspace component types and prop field hints from the registry (built-in + custom). Call before workspace_add_component.",
         schema: z.object({}),
+      },
+    ),
+    tool(
+      async ({ type_def, scope, workflow_id, confirm: _confirm }) => {
+        try {
+          const typeDef = parseCustomComponentType(type_def);
+          const scopeValue = scope as ComponentTypeScope;
+          const workflowId =
+            scopeValue === "workflow"
+              ? workflow_id?.trim() || ctx.workflowId?.trim() || undefined
+              : workflow_id?.trim() || undefined;
+          if (scopeValue === "workflow" && !workflowId) {
+            return "workflow_id is required for workflow scope (pass explicitly or bind via context).";
+          }
+
+          const filePath = path.join(
+            componentTypesDir(
+              ctx.workspaceRoot,
+              scopeValue,
+              workflowId,
+              ctx.userDataRoot,
+            ),
+            `${typeDef.type}.json`,
+          );
+          let overwrite = false;
+          try {
+            await fs.access(filePath);
+            overwrite = true;
+          } catch (err) {
+            if (!isEnoent(err)) throw err;
+          }
+
+          const summary = overwrite
+            ? `Overwrite custom component type "${typeDef.type}" (${scopeValue})`
+            : `Register custom component type "${typeDef.type}" (${scopeValue})`;
+
+          return (
+            COMPONENT_TYPE_PENDING_PREFIX +
+            JSON.stringify({
+              scope: scopeValue,
+              ...(workflowId ? { workflowId } : {}),
+              typeDef,
+              overwrite,
+              summary,
+            })
+          );
+        } catch (err) {
+          return err instanceof Error ? err.message : String(err);
+        }
+      },
+      {
+        name: "workspace_register_component_type",
+        description:
+          "Propose registering a custom workspace component type (project, workflow, or global scope). Returns a pending approval payload; user must confirm in the UI before the type is saved. Does not write files.",
+        schema: z.object({
+          type_def: z
+            .record(z.unknown())
+            .describe(
+              "Custom component type definition: type, label, description, category, defaultProps, propsFields",
+            ),
+          scope: z
+            .enum(["project", "workflow", "global"])
+            .describe("Where to store the type definition"),
+          workflow_id: z
+            .string()
+            .optional()
+            .describe("Required when scope is workflow; defaults to context workflow"),
+          confirm: confirmParam,
+        }),
       },
     ),
     tool(

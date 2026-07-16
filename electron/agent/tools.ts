@@ -1,3 +1,5 @@
+import os from "node:os";
+import path from "node:path";
 import { tool } from "@langchain/core/tools";
 import { z } from "zod";
 import { runDesktopTool, type DesktopToolContext } from "../executor/runTool";
@@ -17,7 +19,23 @@ export type AgentToolContext = DesktopToolContext & {
   resourceServerUrl?: string | null;
   workflowId?: string | null;
   stepId?: string | null;
+  userDataRoot?: string | null;
 };
+
+function resolveUserDataRoot(explicit?: string | null): string {
+  if (explicit?.trim()) return explicit.trim();
+  try {
+    // Electron main: prefer app userData; tests/Node fall through.
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { app } = require("electron") as { app?: { getPath?: (name: string) => string } };
+    if (typeof app?.getPath === "function") {
+      return app.getPath("userData");
+    }
+  } catch {
+    // not running under Electron
+  }
+  return path.join(os.homedir(), ".agentflow-desktop");
+}
 
 function toTopologyContext(ctx: AgentToolContext): TopologyToolContext {
   return {
@@ -33,6 +51,7 @@ function toOpsContext(ctx: AgentToolContext): OpsToolContext {
 function toWorkspaceContext(ctx: AgentToolContext): WorkspaceToolContext {
   return {
     workspaceRoot: ctx.workspaceRoot,
+    userDataRoot: resolveUserDataRoot(ctx.userDataRoot),
     workflowId: ctx.workflowId,
     stepId: ctx.stepId,
   };

@@ -1,4 +1,5 @@
 import fs from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import type { StructuredToolInterface } from "@langchain/core/tools";
 import { WORKSPACE_REGISTRY } from "../workflow/workspaceRegistry";
@@ -30,9 +31,24 @@ export type AgentflowPromptOptions = {
   resourceServerUrl?: string | null;
   workflowId?: string;
   stepId?: string;
+  userDataRoot?: string;
   /** When set, mounts ask_question closed over this thread id. */
   clarificationThreadId?: string;
 };
+
+function resolveUserDataRoot(explicit?: string): string {
+  if (explicit?.trim()) return explicit.trim();
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { app } = require("electron") as { app?: { getPath?: (name: string) => string } };
+    if (typeof app?.getPath === "function") {
+      return app.getPath("userData");
+    }
+  } catch {
+    // not running under Electron
+  }
+  return path.join(os.homedir(), ".agentflow-desktop");
+}
 
 function toolContext(options: AgentflowPromptOptions): AgentToolContext {
   return {
@@ -40,6 +56,7 @@ function toolContext(options: AgentflowPromptOptions): AgentToolContext {
     resourceServerUrl: options.resourceServerUrl ?? null,
     workflowId: options.workflowId ?? null,
     stepId: options.stepId ?? null,
+    userDataRoot: resolveUserDataRoot(options.userDataRoot),
   };
 }
 
